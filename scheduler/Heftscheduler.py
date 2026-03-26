@@ -176,7 +176,7 @@ class HEFTScheduler(BaseScheduler):
 
             if best_server_id is None:
                 # 所有服务器资源不足，等待下轮（资源释放后重试）
-                self.logger.warning(f"HEFT: 无可用服务器承载任务{task.task_id}，等待下轮")
+                # self.logger.warning(f"HEFT: 无可用服务器承载任务{task.task_id}，等待下轮")
                 continue
 
             # 执行分配

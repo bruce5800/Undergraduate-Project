@@ -287,9 +287,9 @@ class GAScheduler(BaseScheduler):
             #           而非直接跳过导致任务永久卡在 READY 状态。
             target_server = self._pick_server(task, preferred_server_id=server_id)
             if target_server is None:
-                self.logger.warning(
-                    f"GA: 所有服务器均无法承载任务{task.task_id}，将在下轮重试"
-                )
+                # self.logger.warning(
+                #     f"GA: 所有服务器均无法承载任务{task.task_id}，将在下轮重试"
+                # )
                 continue
 
             src = task.assigned_server if task.assigned_server is not None else self.cloud_server_id
