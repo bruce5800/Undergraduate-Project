@@ -187,7 +187,7 @@ class PSOScheduler(BaseScheduler):
             #           保证每个 READY 任务都能被分配，不会永久卡住。
             target_server = self._pick_server(task, preferred_server_id=server_id)
             if target_server is None:
-                self.logger.warning(
+                self.logger.debug(
                     f"PSO: 所有服务器均无法承载任务{task.task_id}，跳过（将在下轮重试）"
                 )
                 continue
