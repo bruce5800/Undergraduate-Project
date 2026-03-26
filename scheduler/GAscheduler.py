@@ -5,15 +5,16 @@ import random
 from typing import List, Tuple, Dict
 from environment.server import ServerType
 from environment.task import TaskStatus
+from scheduler.base import BaseScheduler
 
-class GAScheduler:
+class GAScheduler(BaseScheduler):
     """优化的遗传算法调度器"""
 
     logger = logging.getLogger(__name__)
 
     def __init__(self, sim_env, population_size=30, generations=50,
                  crossover_rate=0.8, mutation_rate=0.1, elitism_rate=0.1):
-        self.sim = sim_env
+        super().__init__(sim_env)
         self.population_size = min(population_size, 50)
         self.generations = min(generations, 100)
         self.crossover_rate = crossover_rate
@@ -135,11 +136,12 @@ class GAScheduler:
     #  选择 / 交叉 / 变异                                                   #
     # ------------------------------------------------------------------ #
 
-    def tournament_selection(self, population: List, tasks: List, tournament_size: int = 3) -> List:
+    def tournament_selection(self, population: List, fitness_cache: Dict[int, float],
+                             tournament_size: int = 3) -> List:
         selected = []
         for _ in range(len(population)):
             contestants = random.sample(population, min(tournament_size, len(population)))
-            best = min(contestants, key=lambda ind: self.fast_evaluate_fitness(ind, tasks))
+            best = min(contestants, key=lambda ind: fitness_cache[id(ind)])
             selected.append(best)
         return selected
 
@@ -205,10 +207,8 @@ class GAScheduler:
         no_improve_count = 0
 
         for gen in range(adaptive_gens):
-            fitness_scores = [
-                (self.fast_evaluate_fitness(ind, tasks), ind)
-                for ind in population
-            ]
+            fitness_cache = {id(ind): self.fast_evaluate_fitness(ind, tasks) for ind in population}
+            fitness_scores = [(fitness_cache[id(ind)], ind) for ind in population]
             fitness_scores.sort(key=lambda x: x[0])
             elites = [ind for _, ind in fitness_scores[:elitism_count]]
 
@@ -223,7 +223,7 @@ class GAScheduler:
             if gen > 10 and no_improve_count >= 5:
                 break
 
-            selected = self.tournament_selection(population, tasks, tournament_size=3)
+            selected = self.tournament_selection(population, fitness_cache, tournament_size=3)
 
             new_population = elites.copy()
             while len(new_population) < adaptive_pop_size:

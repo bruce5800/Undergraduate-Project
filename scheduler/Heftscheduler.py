@@ -14,12 +14,13 @@ import logging
 import numpy as np
 from environment.task import TaskStatus
 from environment.server import ServerType
+from scheduler.base import BaseScheduler
 
-class HEFTScheduler:
+class HEFTScheduler(BaseScheduler):
     logger = logging.getLogger(__name__)
 
     def __init__(self, sim_env):
-        self.sim = sim_env
+        super().__init__(sim_env)
         self.server_ids = sorted(sim_env.servers.keys())
 
         # 缓存云服务器 ID，作为未分配任务的传输源
@@ -31,27 +32,35 @@ class HEFTScheduler:
         # 每台服务器的预计下次空闲时间（用于 EFT 计算，仅在调度阶段使用）
         self._server_available_time = {sid: 0.0 for sid in self.server_ids}
 
+        # 预计算：每单位 output_size 的平均传输时间基准（网络拓扑固定后不变）
+        self._avg_transfer_base = self._precompute_avg_transfer_base()
+        # 预计算：各服务器计算能力的倒数均值（用于平均执行时间）
+        self._avg_compute_inverse = float(np.mean([
+            1.0 / max(self.sim.servers[sid].total_compute, 1e-6)
+            for sid in self.server_ids
+        ]))
+
     # ------------------------------------------------------------------ #
     #  向上排名计算                                                         #
     # ------------------------------------------------------------------ #
 
-    def _avg_exec_time(self, task) -> float:
-        """任务在所有服务器上的平均执行时间"""
-        times = [
-            task.compute_demand / max(self.sim.servers[sid].total_compute, 1e-6)
-            for sid in self.server_ids
-        ]
-        return float(np.mean(times))
-
-    def _avg_transfer_time(self, task) -> float:
-        """任务输出数据传输到后继任务服务器的平均传输时间（用于 rank 估算）"""
+    def _precompute_avg_transfer_base(self) -> float:
+        """预计算所有服务器对之间单位数据的平均传输时间（网络拓扑不变时只需算一次）"""
         times = []
         for src in self.server_ids:
             for dst in self.server_ids:
                 if src != dst:
-                    t = self.sim.network.estimate_transfer_time(src, dst, task.output_size)
+                    t = self.sim.network.estimate_transfer_time(src, dst, 1.0)
                     times.append(t)
         return float(np.mean(times)) if times else 0.0
+
+    def _avg_exec_time(self, task) -> float:
+        """任务在所有服务器上的平均执行时间"""
+        return task.compute_demand * self._avg_compute_inverse
+
+    def _avg_transfer_time(self, task) -> float:
+        """任务输出数据的平均传输时间（基于预计算基准线性缩放）"""
+        return self._avg_transfer_base * task.output_size
 
     def _compute_upward_ranks(self, tasks: list) -> dict:
         """

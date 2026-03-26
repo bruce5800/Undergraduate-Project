@@ -3,12 +3,13 @@ import logging
 import numpy as np
 from environment.task import TaskStatus
 from environment.server import ServerType
+from scheduler.base import BaseScheduler
 
-class PSOScheduler:
+class PSOScheduler(BaseScheduler):
     logger = logging.getLogger(__name__)
 
     def __init__(self, sim_env, num_particles=30, generations=30, w=0.7, c1=1.5, c2=1.5):
-        self.sim = sim_env
+        super().__init__(sim_env)
         self.num_particles = num_particles
         self.generations = generations
         self.w = w
@@ -69,6 +70,7 @@ class PSOScheduler:
         return makespan * 0.4 + energy * 0.2 + cost * 0.2 + balance_penalty * 0.2
 
     def simulate_schedule(self, individual, tasks):
+        """individual 是 server_id 列表（非 index）"""
         tasks_list = list(tasks)
         task_completion_times = {}
         server_free_at = {sid: 0.0 for sid in self.sim.servers.keys()}
@@ -76,9 +78,8 @@ class PSOScheduler:
         total_energy = 0.0
         total_cost   = 0.0
 
-        for task_idx, server_index in enumerate(individual):
+        for task_idx, server_id in enumerate(individual):
             task      = tasks_list[task_idx]
-            server_id = self.server_ids[server_index]
             server    = self.sim.servers[server_id]
 
             # 依赖就绪时间

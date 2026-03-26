@@ -1,5 +1,10 @@
+import logging
 from environment.server import Server, ServerType
 from environment.network import Network
+from environment.task import TaskStatus
+
+logger = logging.getLogger(__name__)
+
 
 class Simulation:
     def __init__(self, num_servers=4):
@@ -13,6 +18,33 @@ class Simulation:
         """添加任务到仿真环境"""
         for task in tasks:
             self.tasks[task.task_id] = task
+
+    def step(self, scheduler, current_time):
+        """执行一个仿真时间步：完成检查 -> 依赖更新 -> 调度 -> 处理队列"""
+        # 1. 检查任务完成
+        for task in self.tasks.values():
+            if task.status == TaskStatus.RUNNING and task.end_time is not None:
+                if current_time >= task.end_time:
+                    task.status = TaskStatus.COMPLETED
+                    self.completed_tasks.add(task.task_id)
+                    server = self.servers[task.assigned_server]
+                    server.update_resource(task, allocate=False)
+                    if task in server.running_tasks:
+                        server.running_tasks.remove(task)
+
+        # 2. 更新任务依赖状态
+        for task in self.tasks.values():
+            if task.status == TaskStatus.WAITING and task.check_dependencies(self.completed_tasks):
+                task.status = TaskStatus.READY
+                if task.ready_time is None:
+                    task.ready_time = current_time
+
+        # 3. 执行调度
+        scheduler.schedule()
+
+        # 4. 处理队列中的任务
+        for server in self.servers.values():
+            server.process_tasks(current_time)
 
     def setup_servers(self, num_servers):
         """设置服务器节点"""

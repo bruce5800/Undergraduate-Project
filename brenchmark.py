@@ -78,18 +78,10 @@ class BenchmarkTester:
 
         while len(sim.completed_tasks) < len(sim.tasks) and current_time < max_time:
 
-            # 1. 检查任务完成
-            for task in sim.tasks.values():
-                if task.status == TaskStatus.RUNNING and task.end_time is not None:
-                    if current_time >= task.end_time:
-                        task.status = TaskStatus.COMPLETED
-                        sim.completed_tasks.add(task.task_id)
-                        server = sim.servers[task.assigned_server]
-                        server.update_resource(task, allocate=False)
-                        if task in server.running_tasks:
-                            server.running_tasks.remove(task)
+            # 1. 执行一个仿真时间步（完成检查 + 依赖更新 + 调度 + 处理队列）
+            sim.step(scheduler, current_time)
 
-            # 2. 修复3：用 while 循环捕获同一时间步内跨越多个里程碑的情况
+            # 2. 检查里程碑（用 while 捕获同一时间步内跨越多个里程碑的情况）
             while (current_milestone_idx < len(milestones) and
                    len(sim.completed_tasks) >= milestones[current_milestone_idx]):
                 milestone = milestones[current_milestone_idx]
@@ -101,22 +93,7 @@ class BenchmarkTester:
                 })
                 current_milestone_idx += 1
 
-            # 3. 更新任务依赖状态
-            for task in sim.tasks.values():
-                if task.status == TaskStatus.WAITING and task.check_dependencies(sim.completed_tasks):
-                    task.status = TaskStatus.READY
-                    # 修复1：在任务变为 READY 时记录就绪时刻，用于计算端到端延迟
-                    if task.ready_time is None:
-                        task.ready_time = current_time
-
-            # 4. 执行调度
-            scheduler.schedule()
-
-            # 5. 处理队列中的任务
-            for server in sim.servers.values():
-                server.process_tasks(current_time)
-
-            # 6. 增加时间
+            # 3. 增加时间
             current_time += 1
 
         # 仿真结束后，若仍有未触发的里程碑（max_time 超时），补录最后状态

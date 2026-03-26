@@ -6,6 +6,7 @@ from collections import deque
 import random
 from environment.task import TaskStatus, Task
 from environment.server import ServerType
+from scheduler.base import BaseScheduler
 
 class StateEncoder:
     """将环境状态编码为特征向量"""
@@ -62,9 +63,9 @@ class ActorCritic(nn.Module):
         value = self.critic(features)
         return probs, value
 
-class RLScheduler:
+class RLScheduler(BaseScheduler):
     def __init__(self, sim_env):
-        self.sim = sim_env
+        super().__init__(sim_env)
         self.state_encoder = StateEncoder(sim_env)
         
         # 状态维度 = 任务特征数 + 服务器数*(服务器特征数 + 网络特征数)
