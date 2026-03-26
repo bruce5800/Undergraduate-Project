@@ -66,10 +66,10 @@ class Server:
                 task.status = TaskStatus.RUNNING
                 task.assigned_server = self.server_id
 
-                # 计算执行时间
-                exec_time = task.compute_demand / self.total_compute
-                task.start_time = current_time
-                task.end_time = current_time + exec_time
+                # 计算执行时间（传输延迟 + 计算时间）
+                exec_time = task.workload / self.total_compute
+                task.start_time = current_time + task.transfer_delay
+                task.end_time = task.start_time + exec_time
 
                 self.running_tasks.append(task)
                 self.task_history.append(task)

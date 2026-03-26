@@ -93,7 +93,7 @@ class PSOScheduler(BaseScheduler):
             transfer_time = self.sim.network.estimate_transfer_time(src_id, server_id, task.output_size)
 
             actual_start_time = max(dep_ready_time + transfer_time, server_free_at[server_id])
-            execution_time    = task.compute_demand / max(server.total_compute, 1e-6)
+            execution_time    = task.workload / max(server.total_compute, 1e-6)
             finish_time       = actual_start_time + execution_time
 
             task_completion_times[task.task_id] = finish_time
@@ -198,6 +198,7 @@ class PSOScheduler(BaseScheduler):
             )
 
             task.assigned_server = target_server.server_id
+            task.transfer_delay = transfer_time
             effective_priority   = 1 / max(transfer_time, 1e-6)
             target_server.add_task(task, priority=effective_priority)
 

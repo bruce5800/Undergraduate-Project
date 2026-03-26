@@ -9,25 +9,28 @@ class TaskStatus(Enum):
     COMPLETED = 4 # 已完成
 
 class Task:
-    def __init__(self, task_id: int, 
-                 compute_demand: float,  # 计算需求 (单位：TFLOPS)
-                 input_size: float,      # 输入数据大小 (GB)
-                 output_size: float,     # 输出数据大小 (GB)
+    def __init__(self, task_id: int,
+                 compute_demand: float,  # 并发GPU算力占用 (TFLOPS)，用于资源分配检查
+                 workload: float,        # 总计算工作量 (TFLOPS)，用于计算执行时间
+                 input_size: float,      # 输入数据/模型内存占用 (GB)
+                 output_size: float,     # 输出数据大小 (GB)，同时决定传输时间
                  dependencies: List[int],# 依赖任务ID列表
                  priority=1
                 ):
         self.task_id = task_id
         self.compute_demand = compute_demand
+        self.workload = workload
         self.input_size = input_size
         self.output_size = output_size
         self.dependencies = dependencies
         self.priority = priority
-        
+
         self.status = TaskStatus.WAITING
-        self.ready_time = None   # 新增：依赖满足、进入READY状态的时刻
+        self.ready_time = None      # 依赖满足、进入READY状态的时刻
         self.start_time = None
         self.end_time = None
-        self.assigned_server = None  # 分配的服务器   
+        self.assigned_server = None  # 分配的服务器
+        self.transfer_delay = 0.0   # 数据传输延迟（秒），由调度器设置
     
     def check_dependencies(self, completed_tasks: Set[int]) -> bool:
         return all(dep in completed_tasks for dep in self.dependencies)
@@ -73,9 +76,10 @@ class Task:
             deps = [start_id + d for d in dep_map.get(local_id, []) if d < num_tasks]
             task = Task(
                 task_id=global_id,
-                compute_demand=random.uniform(20, 80),
-                input_size=random.uniform(1, 3),
-                output_size=random.uniform(0.5, 2),
+                compute_demand=random.uniform(3, 20),
+                workload=random.uniform(100, 2000),
+                input_size=random.uniform(2, 8),
+                output_size=random.uniform(0.05, 0.3),
                 dependencies=deps
             )
             tasks.append(task)
@@ -101,9 +105,10 @@ class Task:
                 deps = [global_id - 1] if i > 0 else []
                 task = Task(
                     task_id=global_id,
-                    compute_demand=random.uniform(20, 80),
-                    input_size=random.uniform(1, 3),
-                    output_size=random.uniform(0.5, 2),
+                    compute_demand=random.uniform(3, 20),
+                    workload=random.uniform(100, 2000),
+                    input_size=random.uniform(2, 8),
+                    output_size=random.uniform(0.05, 0.3),
                     dependencies=deps
                 )
                 tasks.append(task)
@@ -152,9 +157,10 @@ class Task:
             deps = [start_id + d for d in dep_map.get(local_id, []) if d < num_tasks]
             task = Task(
                 task_id=global_id,
-                compute_demand=random.uniform(20, 80),
-                input_size=random.uniform(1, 3),
-                output_size=random.uniform(0.5, 2),
+                compute_demand=random.uniform(3, 20),
+                workload=random.uniform(100, 2000),
+                input_size=random.uniform(2, 8),
+                output_size=random.uniform(0.05, 0.3),
                 dependencies=deps
             )
             tasks.append(task)

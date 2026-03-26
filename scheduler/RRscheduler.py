@@ -64,6 +64,7 @@ class RoundRobinScheduler(BaseScheduler):
             effective_priority = 1 / max(transfer_time, 1e-6)
 
             if target_server.can_allocate(task):
+                task.transfer_delay = transfer_time
                 target_server.add_task(task, priority=effective_priority)
             else:
                 # 回退：按剩余算力降序找第一个能容纳的服务器
@@ -74,6 +75,7 @@ class RoundRobinScheduler(BaseScheduler):
                         src_fb, fallback.server_id, task.output_size
                     )
                     task.assigned_server = fallback.server_id
+                    task.transfer_delay = tf_fb
                     fallback.add_task(task, priority=1 / max(tf_fb, 1e-6))
 
     def _pick_fallback_server(self, task):

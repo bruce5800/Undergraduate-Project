@@ -56,7 +56,7 @@ class HEFTScheduler(BaseScheduler):
 
     def _avg_exec_time(self, task) -> float:
         """任务在所有服务器上的平均执行时间"""
-        return task.compute_demand * self._avg_compute_inverse
+        return task.workload * self._avg_compute_inverse
 
     def _avg_transfer_time(self, task) -> float:
         """任务输出数据的平均传输时间（基于预计算基准线性缩放）"""
@@ -136,7 +136,7 @@ class HEFTScheduler(BaseScheduler):
             transfer = self.sim.network.estimate_transfer_time(src_id, server_id, task.output_size)
             dep_ready = max(dep_ready, transfer)
 
-        exec_time = task.compute_demand / max(server.total_compute, 1e-6)
+        exec_time = task.workload / max(server.total_compute, 1e-6)
         start_time = max(dep_ready, self._server_available_time[server_id])
         return start_time + exec_time
 
@@ -187,6 +187,7 @@ class HEFTScheduler(BaseScheduler):
             )
 
             task.assigned_server = best_server_id
+            task.transfer_delay = transfer_time
             effective_priority = 1 / max(transfer_time, 1e-6)
             target_server.add_task(task, priority=effective_priority)
 

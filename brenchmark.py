@@ -57,7 +57,7 @@ class BenchmarkTester:
     # ---------------- 执行调度并分阶段记录 ----------------
 
     def run_scheduler_with_checkpoints(self, scheduler_class, total_task_count, num_edge_servers,
-                                       checkpoint_interval=20, max_time=5000):
+                                       checkpoint_interval=20, max_time=10000):
         # 修复4：每个调度器运行前重置种子，保证公平对比
         random.seed(self.seed)
         np.random.seed(self.seed)
@@ -93,8 +93,8 @@ class BenchmarkTester:
                 })
                 current_milestone_idx += 1
 
-            # 3. 增加时间
-            current_time += 1
+            # 3. 增加时间（0.1s 步长，匹配任务执行时间量级）
+            current_time += 0.1
 
         # 仿真结束后，若仍有未触发的里程碑（max_time 超时），补录最后状态
         while current_milestone_idx < len(milestones):

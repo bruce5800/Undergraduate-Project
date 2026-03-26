@@ -18,9 +18,10 @@ class StateEncoder:
         features = []
         
         # 任务特征 (归一化)
-        features.append(task.compute_demand / 100)  # 假设最大需求100TFLOPS
-        features.append(task.input_size / 50)       # 假设最大输入50GB
-        features.append(task.output_size / 20)      # 假设最大输出20GB
+        features.append(task.compute_demand / 20)   # 最大并发算力20TFLOPS
+        features.append(task.workload / 2000)       # 最大工作量2000TFLOPS
+        features.append(task.input_size / 8)        # 最大输入8GB
+        features.append(task.output_size / 0.3)     # 最大输出0.3GB
         
         # 服务器状态特征
         for server in self.sim.servers.values():
@@ -69,7 +70,7 @@ class RLScheduler(BaseScheduler):
         self.state_encoder = StateEncoder(sim_env)
         
         # 状态维度 = 任务特征数 + 服务器数*(服务器特征数 + 网络特征数)
-        sample_task = Task(0, 10, 5, 2, [])
+        sample_task = Task(0, compute_demand=10, workload=500, input_size=4, output_size=0.1, dependencies=[])
         state_dim = len(self.state_encoder.encode(sample_task))
         action_dim = len(sim_env.servers)  # 每个服务器是一个动作
         
@@ -135,7 +136,7 @@ class RLScheduler(BaseScheduler):
         server = self.sim.servers[server_id]
         
         # 基础奖励：执行时间的倒数
-        exec_time = task.compute_demand / server.total_compute
+        exec_time = task.workload / server.total_compute
         reward = 1.0 / (exec_time + 1e-6)
         
         # 惩罚项
@@ -172,6 +173,7 @@ class RLScheduler(BaseScheduler):
 
                 # 记录调度结果
                 task.assigned_server = target_server.server_id
+                task.transfer_delay = transfer_time
 
                 min_transfer_time = 1e-6  # 最小时间阈值（0.001毫秒）
                 effective_priority = 1 / max(transfer_time, min_transfer_time)

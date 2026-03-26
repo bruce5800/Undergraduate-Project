@@ -298,6 +298,7 @@ class GAScheduler(BaseScheduler):
             )
 
             task.assigned_server = target_server.server_id
+            task.transfer_delay = transfer_time
             effective_priority = 1 / max(transfer_time, 1e-6)
             target_server.add_task(task, priority=effective_priority)
 

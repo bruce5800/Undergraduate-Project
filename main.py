@@ -53,7 +53,7 @@ def main():
 
     # 仿真循环
     current_time = 0
-    time_step = 1  # 时间步长（秒）
+    time_step = 0.1  # 时间步长（秒）
     total_tasks = len(all_tasks)
 
 
