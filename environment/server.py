@@ -39,7 +39,8 @@ class Server:
                 self.used_storage + task.output_size <= self.total_storage)
 
     def add_task(self, task: Task, priority: float):
-        """添加任务到等待队列"""
+        """添加任务到等待队列，标记为 QUEUED 防止重复调度"""
+        task.status = TaskStatus.QUEUED
         heapq.heappush(self.task_queue, (priority, task))
         
     def update_resource(self, task: Task, allocate: bool):
@@ -58,7 +59,7 @@ class Server:
         """处理任务队列，尽可能多地启动任务"""
         while self.task_queue:
             priority, task = heapq.heappop(self.task_queue)
-            if task.status == TaskStatus.COMPLETED:  # 防止重复处理
+            if task.status != TaskStatus.QUEUED:  # 跳过已完成或已在其他服务器运行的任务
                 continue
 
             if self.can_allocate(task):

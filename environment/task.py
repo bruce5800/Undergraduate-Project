@@ -3,10 +3,11 @@ from enum import Enum
 from typing import List, Set
 
 class TaskStatus(Enum):
-    WAITING = 1  # 依赖未满足
-    READY = 2    # 依赖已满足，等待调度
-    RUNNING = 3  # 正在执行
-    COMPLETED = 4 # 已完成
+    WAITING = 1   # 依赖未满足
+    READY = 2     # 依赖已满足，等待调度
+    QUEUED = 3    # 已加入服务器队列，等待资源
+    RUNNING = 4   # 正在执行
+    COMPLETED = 5 # 已完成
 
 class Task:
     def __init__(self, task_id: int,
