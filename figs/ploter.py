@@ -23,7 +23,8 @@ class BenchmarkPlotter:
             "RoundRobin": "#1f77b4",
             "RL": "#ff7f0e", 
             "GA": "#2ca02c",
-            "PSO": "#d62728"
+            "PSO": "#d62728",
+            "HEFT": "#9467bd"
         }
         
         self.markers = {
@@ -70,7 +71,7 @@ class BenchmarkPlotter:
         
         # 指标名称映射
         metric_labels = {
-            '总运行时间': '总运行时间 (秒)',
+            '总运行时间(makespan)': '总运行时间 (秒)',
             '平均端到端延迟': '平均端到端延迟 (秒)',
             '平均利用率': '资源利用率 (%)',
             '负载均衡标准差': '负载均衡标准差'
@@ -163,7 +164,7 @@ class BenchmarkPlotter:
             return
         
         schedulers = subset_data['调度器'].values
-        metrics = ['总运行时间', '平均端到端延迟', '平均利用率', '负载均衡标准差']
+        metrics = ['总运行时间(makespan)', '平均端到端延迟', '平均利用率', '负载均衡标准差']
         
         # 创建图形
         fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -223,7 +224,7 @@ class BenchmarkPlotter:
         }
         return units.get(metric, '')
     
-    def plot_heatmap(self, scheduler: str = "RL", metric: str = "总运行时间",
+    def plot_heatmap(self, scheduler: str = "RL", metric: str = "总运行时间(makespan)",
                     output_file: str = "figs/heatmap_comparison.png"):
         """
         绘制热力图展示不同配置下的性能
@@ -333,7 +334,7 @@ class BenchmarkPlotter:
         
         # 定义要绘制的指标
         metrics = [
-            ('总运行时间', '总运行时间 (秒)'),
+            ('总运行时间(makespan)', '总运行时间 (秒)'),
             ('平均端到端延迟', '平均端到端延迟 (秒)'),
             ('平均利用率', '资源利用率 (%)'),
             ('负载均衡标准差', '负载均衡标准差')
@@ -393,7 +394,7 @@ class BenchmarkPlotter:
         print("开始生成可视化报告...")
 
         # 1. 各指标对比图
-        metrics = ['总运行时间', '平均端到端延迟', '平均利用率', '负载均衡标准差']
+        metrics = ['总运行时间(makespan)', '平均端到端延迟', '平均利用率', '负载均衡标准差']
         for metric in metrics:
             filename = metric.replace('/', '_').replace('\\', '_')
             self.plot_multi_metrics_comparison(
@@ -413,7 +414,7 @@ class BenchmarkPlotter:
         # 3. 热力图
         for scheduler in self.data['调度器'].unique():
             self.plot_heatmap(
-                scheduler, '总运行时间',
+                scheduler, '总运行时间(makespan)',
                 os.path.join(output_dir, f"{scheduler}_heatmap.png")
             )
         
