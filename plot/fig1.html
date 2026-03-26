@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Distributed Transformer Architecture</title>
+    <style>
+        body { background: #f8f9fa; margin: 20px; }
+        svg { border: 1px solid #ddd; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+<svg width="1400" height="1200" viewBox="0 0 1400 1200" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+
+<!-- 定义渐变和箭头 -->
+<defs>
+    <linearGradient id="mainGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" style="stop-color:#4a90e2"/>
+        <stop offset="100%" style="stop-color:#50e3c2"/>
+    </linearGradient>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a90e2"/>
+    </marker>
+</defs>
+
+<!-- 图例 -->
+<rect x="20" y="20" width="280" height="160" fill="white" rx="5" stroke="#ddd"/>
+<text x="40" y="45" font-size="14" fill="#333">Connection Legend:</text>
+<path d="M40 65 L100 65" stroke="#4a90e2" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="110" y="70" font-size="12">Data Flow</text>
+<path d="M40 95 L100 95" stroke="#eb5757" stroke-dasharray="4 2"/>
+<text x="110" y="100" font-size="12">Gradient Flow</text>
+<path d="M40 125 L100 125" stroke="#9013fe" stroke-width="3"/>
+<text x="110" y="130" font-size="12">Parameter Sync</text>
+<path d="M40 155 L100 155" stroke="#f5a623" stroke-linecap="round"/>
+<text x="110" y="160" font-size="12">Control Signal</text>
+
+<!-- 架构主体 -->
+<g transform="translate(100,200)">
+    <!-- 输入层 -->
+    <rect x="400" y="0" width="400" height="80" fill="url(#mainGradient)" rx="8"/>
+    <text x="550" y="45" fill="white" font-size="18">Input Layer</text>
+    <text x="560" y="65" fill="white" font-size="12">(Data Parallel)</text>
+
+    <!-- 嵌入层 -->
+    <rect x="300" y="120" width="600" height="80" fill="#50e3c2" rx="8"/>
+    <text x="535" y="165" font-size="18">Embedding Layer</text>
+    <text x="540" y="185" font-size="12">(Model+Data Parallel)</text>
+
+    <!-- 编码器层 -->
+    <rect x="200" y="240" width="800" height="200" fill="#f5a623" rx="8"/>
+    <text x="540" y="280" font-size="18">Encoder Layers</text>
+    <text x="550" y="300" font-size="12">(Pipeline Parallel)</text>
+    
+    <!-- 编码器子层 -->
+    <rect x="250" y="320" width="200" height="100" fill="#d38312" rx="5"/>
+    <text x="270" y="370" fill="white">Layers 1-4</text>
+    <rect x="500" y="320" width="200" height="100" fill="#d38312" rx="5"/>
+    <text x="520" y="370" fill="white">Layers 5-8</text>
+    <rect x="750" y="320" width="200" height="100" fill="#d38312" rx="5"/>
+    <text x="770" y="370" fill="white">Layers 9-12</text>
+
+    <!-- 解码器层 -->
+    <rect x="200" y="480" width="800" height="200" fill="#eb5757" rx="8"/>
+    <text x="540" y="520" font-size="18">Decoder Layers</text>
+    <text x="550" y="540" font-size="12">(Hybrid Parallel)</text>
+    
+    <!-- 解码器子层 -->
+    <rect x="250" y="560" width="200" height="100" fill="#9b2d30" rx="5"/>
+    <text x="270" y="610" fill="white">Layers 1-4</text>
+    <rect x="500" y="560" width="200" height="100" fill="#9b2d30" rx="5"/>
+    <text x="520" y="610" fill="white">Layers 5-8</text>
+    <rect x="750" y="560" width="200" height="100" fill="#9b2d30" rx="5"/>
+    <text x="770" y="610" fill="white">Layers 9-12</text>
+
+    <!-- 输出层 -->
+    <rect x="400" y="720" width="400" height="80" fill="#9013fe" rx="8"/>
+    <text x="550" y="765" fill="white" font-size="18">Output Layer</text>
+    <text x="555" y="785" fill="white" font-size="12">(Data Parallel)</text>
+
+    <!-- 存储层 -->
+    <rect x="350" y="840" width="500" height="80" fill="#666" rx="8"/>
+    <text x="540" y="885" fill="white" font-size="18">Persistence Layer</text>
+    <text x="550" y="905" fill="white" font-size="12">(Distributed Storage)</text>
+
+    <!-- 连接线系统 -->
+    <!-- 垂直主线 -->
+    <path d="M600 80 V840" stroke="#ccc" stroke-width="2" stroke-dasharray="4 2"/>
+    
+    <!-- 前向数据流 -->
+    <path d="M550 80 Q550 100 550 120" stroke="#4a90e2" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M550 200 Q550 220 550 240" stroke="#4a90e2" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M550 440 Q550 460 550 480" stroke="#4a90e2" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M550 680 Q550 700 550 720" stroke="#4a90e2" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <!-- 反向梯度流 -->
+    <path d="M650 720 Q650 700 650 680" stroke="#eb5757" stroke-width="2" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+    <path d="M650 480 Q650 460 650 440" stroke="#eb5757" stroke-width="2" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+    <path d="M650 240 Q650 220 650 200" stroke="#eb5757" stroke-width="2" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+
+    <!-- 横向参数同步 -->
+    <path d="M250 360 L950 360" stroke="#9013fe" stroke-width="3"/>
+    <path d="M250 600 L950 600" stroke="#9013fe" stroke-width="3"/>
+</g>
+
+</svg>
+
+<div style="text-align:center;color:#666;margin-top:20px;">
+    Recommendation: Use Chrome/Firefox for best experience
+</div>
+</body>
+</html>
