@@ -1,4 +1,35 @@
-# benchmark.py (修复版)
+"""
+brenchmark.py — 论文级基准测试框架
+
+P0 改进：
+  1. 修正资源利用率：加权计算 util = Σ(compute_demand × duration) / (capacity × makespan)
+     结果严格 ∈ [0, 1]，不再出现 > 1 的异常值
+  2. 多轮运行 + 统计检验：每配置 N 次（默认 20），报告均值 ± 标准差，
+     Mann-Whitney U 检验各调度器之间是否有显著差异
+  3. 任务规模梯度：100 / 200 / 300 / 500，分析可扩展性
+
+输出文件：
+  figs/benchmark_raw.csv        — 每一轮原始数据
+  figs/benchmark_summary.csv    — 均值 / 标准差 / 95%CI / 中位数 / 最小最大
+  figs/statistical_tests.csv    — 成对 Mann-Whitney U 检验结果
+"""
+
+import csv
+import os
+import sys
+import time
+import random
+import argparse
+import numpy as np
+
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+
+from scipy import stats as sp_stats
+
 from scheduler.RLscheduler import RLScheduler
 from scheduler.GAscheduler import GAScheduler
 from scheduler.Heftscheduler import HEFTScheduler
@@ -7,241 +38,375 @@ from scheduler.RRscheduler import RoundRobinScheduler
 from environment.simulation import Simulation
 from environment.task import Task, TaskStatus
 
-import csv
-import random
-import numpy as np
+
+# ====================================================================
+#  BenchmarkTester
+# ====================================================================
 
 class BenchmarkTester:
-    """基准测试类（支持分阶段记录）"""
-    
-    def __init__(self, seed=42):
-        self.seed = seed
-        
+
+    def __init__(self, num_runs: int = 20, base_seed: int = 42):
+        self.num_runs = num_runs
+        self.base_seed = base_seed
+
+        # 全部 5 种调度器
         self.schedulers = {
             "RoundRobin": RoundRobinScheduler,
-            "RL": RLScheduler,
-            "GA": GAScheduler,
-            "HEFT": HEFTScheduler
+            "HEFT":       HEFTScheduler,
+            "GA":         GAScheduler,
+            "PSO":        PSOScheduler,
+            "RL":         RLScheduler,
         }
 
-    # ---------------- 初始化环境 ----------------
+    # ----------------------------------------------------------------
+    #  环境创建
+    # ----------------------------------------------------------------
 
-    def create_simulation(self, task_count, num_edge_servers, seed=42):
-        # 修复4：每次创建仿真环境前重置种子，确保所有调度器面对完全相同的任务参数
+    def create_simulation(self, task_count: int, num_edge_servers: int,
+                          seed: int) -> Simulation:
+        """创建仿真环境，使用指定 seed 确保可复现"""
         random.seed(seed)
         np.random.seed(seed)
 
         sim = Simulation(num_servers=num_edge_servers)
 
-        all_tasks = []
-
         count1 = task_count // 3
         count2 = task_count // 3
         count3 = task_count - count1 - count2
 
-        tasks1 = Task.generate_single_dag(task_id_offset=0, num_tasks=count1)
-        all_tasks.extend(tasks1)
+        all_tasks = []
+        all_tasks.extend(Task.generate_single_dag(0, count1))
+        all_tasks.extend(Task.generate_linear_dag(count1, count2))
+        all_tasks.extend(Task.generate_fork_join_dag(count1 + count2, count3))
 
-        tasks2 = Task.generate_linear_dag(task_id_offset=count1, num_tasks=count2)
-        all_tasks.extend(tasks2)
-
-        tasks3 = Task.generate_fork_join_dag(task_id_offset=count1 + count2, num_tasks=count3)
-        all_tasks.extend(tasks3)
-
-        # 打乱任务加入顺序（task_id 和内部依赖关系保持不变）
         random.shuffle(all_tasks)
-
         sim.add_tasks(all_tasks)
         return sim
 
-    # ---------------- 执行调度并分阶段记录 ----------------
+    # ----------------------------------------------------------------
+    #  单轮运行
+    # ----------------------------------------------------------------
 
-    def run_scheduler_with_checkpoints(self, scheduler_class, total_task_count, num_edge_servers,
-                                       checkpoint_interval=20, max_time=10000):
-        # 修复4：每个调度器运行前重置种子，保证公平对比
-        random.seed(self.seed)
-        np.random.seed(self.seed)
+    def run_single(self, scheduler_name: str, scheduler_class,
+                   task_count: int, num_edge_servers: int, seed: int,
+                   max_time: float = 10000) -> dict:
+        """运行一次完整仿真，返回最终指标 dict"""
+        # 设置所有随机种子
+        random.seed(seed)
+        np.random.seed(seed)
+        if HAS_TORCH:
+            torch.manual_seed(seed)
 
-        sim = self.create_simulation(total_task_count, num_edge_servers, seed=self.seed)
-        scheduler = scheduler_class(sim)
-        current_time = 0
+        sim = self.create_simulation(task_count, num_edge_servers, seed)
 
-        checkpoints = []
+        # RL 使用较少的预训练轮次以控制总耗时
+        if scheduler_class is RLScheduler:
+            scheduler = RLScheduler(sim, pretrain_episodes=5)
+        else:
+            scheduler = scheduler_class(sim)
 
-        milestones = list(range(checkpoint_interval, total_task_count + 1, checkpoint_interval))
-        if not milestones or milestones[-1] != total_task_count:
-            milestones.append(total_task_count)
-
-        current_milestone_idx = 0
-
-        print(f"  总任务数: {total_task_count}, 检查点: {milestones}")
-
-        while len(sim.completed_tasks) < len(sim.tasks) and current_time < max_time:
-
-            # 1. 执行一个仿真时间步（完成检查 + 依赖更新 + 调度 + 处理队列）
+        current_time = 0.0
+        while (len(sim.completed_tasks) < len(sim.tasks)
+               and current_time < max_time):
             sim.step(scheduler, current_time)
-
-            # 2. 检查里程碑（用 while 捕获同一时间步内跨越多个里程碑的情况）
-            while (current_milestone_idx < len(milestones) and
-                   len(sim.completed_tasks) >= milestones[current_milestone_idx]):
-                milestone = milestones[current_milestone_idx]
-                metrics = self.collect_metrics_at_checkpoint(sim, current_time, milestone)
-                checkpoints.append({
-                    'completed_tasks': milestone,
-                    'metrics': metrics,
-                    'time': current_time
-                })
-                current_milestone_idx += 1
-
-            # 3. 增加时间（0.1s 步长，匹配任务执行时间量级）
             current_time += 0.1
 
-        # 仿真结束后，若仍有未触发的里程碑（max_time 超时），补录最后状态
-        while current_milestone_idx < len(milestones):
-            metrics = self.collect_metrics_at_checkpoint(
-                sim, current_time, len(sim.completed_tasks)
-            )
-            checkpoints.append({
-                'completed_tasks': len(sim.completed_tasks),
-                'metrics': metrics,
-                'time': current_time
-            })
-            current_milestone_idx += 1
+        return self._collect_metrics(sim, current_time)
 
-        return checkpoints
+    # ----------------------------------------------------------------
+    #  指标收集（修正利用率）
+    # ----------------------------------------------------------------
 
-    def collect_metrics_at_checkpoint(self, sim, current_time, target_completed_tasks):
-        """在检查点收集性能指标"""
+    def _collect_metrics(self, sim: Simulation, current_time: float) -> dict:
+        completed = [t for t in sim.tasks.values()
+                     if t.task_id in sim.completed_tasks]
 
-        completed_tasks_list = [
-            t for t in sim.tasks.values() if t.task_id in sim.completed_tasks
-        ]
+        # 1) Makespan
+        makespan = round(current_time, 2)
 
-        # 修复1：avg_completion_time 改为端到端延迟（READY 时刻 -> 执行完成）
-        e2e_times = []
-        for task in completed_tasks_list:
-            if task.ready_time is not None and task.end_time is not None:
-                e2e_times.append(task.end_time - task.ready_time)
-        avg_completion_time = sum(e2e_times) / len(e2e_times) if e2e_times else 0
+        # 2) 平均端到端延迟 (READY → COMPLETED)
+        e2e = [t.end_time - t.ready_time
+               for t in completed
+               if t.ready_time is not None and t.end_time is not None]
+        avg_e2e = float(np.mean(e2e)) if e2e else 0.0
 
-        # 修复2：资源利用率 = 服务器有效忙碌时长 / 当前总时长（结果在 0~1 之间）
-        utilization = []
+        # 3) 修正的资源利用率 (P0-1)
+        #    util_s = Σ_task(compute_demand × duration) / (capacity × makespan)
+        #    结果严格 ∈ [0, 1]
+        utils = []
         for server in sim.servers.values():
-            busy_time = sum(
-                t.end_time - t.start_time
+            resource_seconds = sum(
+                t.compute_demand * (t.end_time - t.start_time)
                 for t in server.task_history
-                if t.task_id in sim.completed_tasks
-                   and t.start_time is not None
-                   and t.end_time is not None
+                if (t.task_id in sim.completed_tasks
+                    and t.start_time is not None
+                    and t.end_time is not None)
             )
-            util = busy_time / current_time if current_time > 0 else 0
-            utilization.append(util)
+            denominator = server.total_compute * current_time
+            util = resource_seconds / denominator if denominator > 0 else 0.0
+            utils.append(util)
 
-        avg_utilization = sum(utilization) / len(utilization) if utilization else 0
-        load_std = float(np.std(utilization)) if utilization else 0
+        avg_util = float(np.mean(utils)) if utils else 0.0
+        load_std = float(np.std(utils)) if utils else 0.0
+
+        # 4) 完成率
+        completed_ratio = len(sim.completed_tasks) / max(len(sim.tasks), 1)
 
         return {
-            'makespan': current_time,
-            'avg_completion_time': avg_completion_time,
-            'avg_utilization': avg_utilization,
-            'load_balance_std': load_std,
-            'completed_tasks': target_completed_tasks,
-            'total_tasks': len(sim.tasks)
+            "makespan":          makespan,
+            "avg_e2e_latency":   round(avg_e2e, 4),
+            "avg_utilization":   round(avg_util, 4),
+            "load_balance_std":  round(load_std, 4),
+            "completed_ratio":   round(completed_ratio, 4),
         }
 
-    # ---------------- 运行基准测试 ----------------
+    # ================================================================
+    #  主测试入口
+    # ================================================================
 
-    def run_benchmark_with_checkpoints(self, edge_server_counts, max_task_count=500,
-                                       checkpoint_interval=20,
-                                       output_file="figs/benchmark_results.csv"):
+    def run_benchmark(self, edge_counts: list, task_counts: list,
+                      output_dir: str = "figs"):
+        os.makedirs(output_dir, exist_ok=True)
+
+        raw_results: list[dict] = []
+        total_runs = (len(edge_counts) * len(task_counts)
+                      * len(self.schedulers) * self.num_runs)
+        progress = 0
+        wall_start = time.time()
+
+        for edge_count in edge_counts:
+            print(f"\n{'='*60}")
+            print(f"  边缘服务器数量: {edge_count}")
+            print(f"{'='*60}")
+
+            for task_count in task_counts:
+                print(f"\n  任务规模: {task_count}")
+                print(f"  {'-'*50}")
+
+                for sched_name, sched_class in self.schedulers.items():
+                    run_makespans = []
+
+                    for run_idx in range(self.num_runs):
+                        seed = self.base_seed + run_idx
+
+                        t0 = time.time()
+                        metrics = self.run_single(
+                            sched_name, sched_class,
+                            task_count, edge_count, seed)
+                        elapsed = time.time() - t0
+
+                        raw_results.append({
+                            "edge_servers": edge_count,
+                            "task_count":   task_count,
+                            "scheduler":    sched_name,
+                            "run":          run_idx,
+                            "seed":         seed,
+                            **metrics,
+                        })
+
+                        run_makespans.append(metrics["makespan"])
+                        progress += 1
+
+                        # 进度条
+                        pct = progress / total_runs * 100
+                        eta = ((time.time() - wall_start) / progress
+                               * (total_runs - progress))
+                        sys.stdout.write(
+                            f"\r    [{progress}/{total_runs}] {pct:5.1f}%  "
+                            f"{sched_name:<12s} run {run_idx+1:>2d}/{self.num_runs}  "
+                            f"({elapsed:5.1f}s)  ETA {eta/60:5.1f}min   ")
+                        sys.stdout.flush()
+
+                    # 该调度器在本配置的汇总
+                    m = np.mean(run_makespans)
+                    s = np.std(run_makespans, ddof=1) if len(run_makespans) > 1 else 0
+                    print(f"\n    {sched_name:<12s}: "
+                          f"makespan = {m:7.1f} ± {s:5.1f}")
+
+        wall_total = time.time() - wall_start
+        print(f"\n\n{'='*60}")
+        print(f"  总耗时: {wall_total/60:.1f} 分钟  |  总运行数: {total_runs}")
+        print(f"{'='*60}")
+
+        # ---------- 导出 ----------
+        raw_file = os.path.join(output_dir, "benchmark_raw.csv")
+        summary_file = os.path.join(output_dir, "benchmark_summary.csv")
+        stat_file = os.path.join(output_dir, "statistical_tests.csv")
+
+        self._export_raw(raw_results, raw_file)
+        summary = self._compute_summary(raw_results)
+        self._export_summary(summary, summary_file)
+        self._run_statistical_tests(raw_results, stat_file)
+
+        return raw_results, summary
+
+    # ================================================================
+    #  统计汇总
+    # ================================================================
+
+    def _compute_summary(self, raw_results: list) -> list:
+        """按 (edge, task_count, scheduler) 分组，计算每个指标的描述统计量"""
+        import pandas as pd
+        df = pd.DataFrame(raw_results)
+
+        metrics = ["makespan", "avg_e2e_latency",
+                    "avg_utilization", "load_balance_std"]
+        summary = []
+
+        groups = df.groupby(["edge_servers", "task_count", "scheduler"])
+        for (edge, tasks, sched), grp in groups:
+            for metric in metrics:
+                vals = grp[metric].values
+                n = len(vals)
+                mean = float(np.mean(vals))
+                std  = float(np.std(vals, ddof=1)) if n > 1 else 0.0
+                se   = std / np.sqrt(n) if n > 1 else 0.0
+                ci   = 1.96 * se  # 95 % CI
+
+                summary.append({
+                    "edge_servers": edge,
+                    "task_count":   tasks,
+                    "scheduler":    sched,
+                    "metric":       metric,
+                    "mean":         round(mean, 4),
+                    "std":          round(std, 4),
+                    "ci_lower":     round(mean - ci, 4),
+                    "ci_upper":     round(mean + ci, 4),
+                    "min":          round(float(np.min(vals)), 4),
+                    "max":          round(float(np.max(vals)), 4),
+                    "median":       round(float(np.median(vals)), 4),
+                    "n":            n,
+                })
+
+        return summary
+
+    # ================================================================
+    #  统计显著性检验
+    # ================================================================
+
+    def _run_statistical_tests(self, raw_results: list,
+                               output_file: str):
+        """成对 Mann-Whitney U 检验（非参数，不假设正态分布）"""
+        import pandas as pd
+        df = pd.DataFrame(raw_results)
+
+        metrics = ["makespan", "avg_e2e_latency",
+                    "avg_utilization", "load_balance_std"]
+        scheds = sorted(df["scheduler"].unique())
         results = []
 
-        for edge_count in edge_server_counts:
-            print(f"\n{'='*60}")
-            print(f"测试边缘服务器数量: {edge_count}")
-            print('='*60)
+        for (edge, tasks), cfg in df.groupby(["edge_servers", "task_count"]):
+            for metric in metrics:
+                for i, sa in enumerate(scheds):
+                    for sb in scheds[i + 1:]:
+                        va = cfg.loc[cfg["scheduler"] == sa, metric].values
+                        vb = cfg.loc[cfg["scheduler"] == sb, metric].values
+                        if len(va) < 2 or len(vb) < 2:
+                            continue
+                        try:
+                            stat, p = sp_stats.mannwhitneyu(
+                                va, vb, alternative="two-sided")
+                        except ValueError:
+                            stat, p = 0.0, 1.0
 
-            for scheduler_name, scheduler_class in self.schedulers.items():
-                print(f"\n调度器: {scheduler_name}")
-                print("-" * 40)
+                        sig = ""
+                        if p < 0.001:
+                            sig = "***"
+                        elif p < 0.01:
+                            sig = "**"
+                        elif p < 0.05:
+                            sig = "*"
 
-                checkpoints = self.run_scheduler_with_checkpoints(
-                    scheduler_class,
-                    total_task_count=max_task_count,
-                    num_edge_servers=edge_count,
-                    checkpoint_interval=checkpoint_interval
-                )
+                        results.append({
+                            "edge_servers":  edge,
+                            "task_count":    tasks,
+                            "metric":        metric,
+                            "scheduler_A":   sa,
+                            "scheduler_B":   sb,
+                            "mean_A":        round(float(np.mean(va)), 4),
+                            "mean_B":        round(float(np.mean(vb)), 4),
+                            "U_statistic":   round(float(stat), 2),
+                            "p_value":       round(float(p), 6),
+                            "significant":   sig,
+                        })
 
-                for checkpoint in checkpoints:
-                    results.append({
-                        '边缘服务器数量': edge_count,
-                        '调度器': scheduler_name,
-                        '任务数量': checkpoint['completed_tasks'],
-                        '总运行时间(makespan)': checkpoint['metrics']['makespan'],
-                        '平均端到端延迟': checkpoint['metrics']['avg_completion_time'],
-                        '平均利用率': checkpoint['metrics']['avg_utilization'],
-                        '负载均衡标准差': checkpoint['metrics']['load_balance_std'],
-                        '已完成任务数': checkpoint['completed_tasks'],
-                        '总任务数': max_task_count
-                    })
+        if results:
+            with open(output_file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=results[0].keys())
+                writer.writeheader()
+                writer.writerows(results)
+            print(f"  统计检验结果 → {output_file} ({len(results)} 条)")
+        else:
+            print("  无统计检验结果")
 
-                if checkpoints:
-                    last = checkpoints[-1]
-                    print(f"  最终完成: {last['completed_tasks']}/{max_task_count} 任务")
-                    print(f"  Makespan: {last['metrics']['makespan']:.1f}")
-                    print(f"  平均端到端延迟: {last['metrics']['avg_completion_time']:.4f}")
-                    print(f"  平均利用率: {last['metrics']['avg_utilization']:.4f}")
+    # ================================================================
+    #  CSV 导出
+    # ================================================================
 
-        self.export_detailed_results(results, output_file)
-        return results
-
-    def export_detailed_results(self, results, output_file):
-        """导出详细结果到CSV文件"""
+    def _export_raw(self, results: list, output_file: str):
         if not results:
-            print("没有结果可导出")
             return
-
-        fieldnames = [
-            '边缘服务器数量', '调度器', '任务数量',
-            '总运行时间(makespan)', '平均端到端延迟', '平均利用率', '负载均衡标准差',
-            '已完成任务数', '总任务数'
-        ]
-
-        with open(output_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+        with open(output_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=results[0].keys())
             writer.writeheader()
-            for result in results:
-                writer.writerow(result)
+            writer.writerows(results)
+        print(f"  原始数据    → {output_file} ({len(results)} 条)")
 
-        print(f"\n详细结果已导出到: {output_file}")
+    def _export_summary(self, summary: list, output_file: str):
+        if not summary:
+            return
+        with open(output_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=summary[0].keys())
+            writer.writeheader()
+            writer.writerows(summary)
+        print(f"  汇总统计    → {output_file} ({len(summary)} 条)")
 
 
-# ---------------- 主程序 ----------------
+# ====================================================================
+#  命令行入口
+# ====================================================================
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="边缘计算调度算法基准测试（论文级）")
+    parser.add_argument(
+        "--runs", type=int, default=20,
+        help="每配置运行次数 (默认 20)")
+    parser.add_argument(
+        "--quick", action="store_true",
+        help="快速模式：5 轮、少量配置，用于开发测试")
+    parser.add_argument(
+        "--edge", type=int, nargs="+", default=None,
+        help="自定义边缘服务器数量列表，如 --edge 3 5 7")
+    parser.add_argument(
+        "--tasks", type=int, nargs="+", default=None,
+        help="自定义任务规模列表，如 --tasks 100 300 500")
+    args = parser.parse_args()
+
+    if args.quick:
+        num_runs    = 5
+        edge_counts = [3, 7]
+        task_counts = [100, 300]
+    else:
+        num_runs    = args.runs
+        edge_counts = args.edge  if args.edge  else [3, 5, 7]
+        task_counts = args.tasks if args.tasks else [100, 200, 300, 500]
+
+    total = len(edge_counts) * len(task_counts) * 5 * num_runs
+
     print("=" * 70)
-    print("边缘计算调度算法基准测试")
+    print("  边缘计算调度算法基准测试（论文级）")
+    print("=" * 70)
+    print(f"  运行次数/配置 : {num_runs}")
+    print(f"  边缘服务器    : {edge_counts}")
+    print(f"  任务规模      : {task_counts}")
+    print(f"  调度器        : RoundRobin, HEFT, GA, PSO, RL")
+    print(f"  总运行数      : {total}")
     print("=" * 70)
 
-    tester = BenchmarkTester(seed=42)
-
-    edge_server_counts = [3, 5, 7]
-    max_task_count = 300
-    checkpoint_interval = 20
-
-    print(f"\n开始检查点基准测试...")
-    print(f"边缘服务器数量: {edge_server_counts}")
-    print(f"最大任务数量: {max_task_count}")
-    print(f"检查点间隔: 每{checkpoint_interval}个任务记录一次")
-    print(f"预计数据点: {max_task_count // checkpoint_interval} 个/调度器")
-
-    results = tester.run_benchmark_with_checkpoints(
-        edge_server_counts,
-        max_task_count=max_task_count,
-        checkpoint_interval=checkpoint_interval,
-        output_file="figs/benchmark_results.csv"
-    )
+    tester = BenchmarkTester(num_runs=num_runs)
+    raw, summary = tester.run_benchmark(edge_counts, task_counts)
 
     print("\n" + "=" * 70)
-    print("测试完成!")
+    print("  测试完成！输出文件在 figs/ 目录下")
     print("=" * 70)

@@ -1,424 +1,424 @@
-# visualization/plotter.py
-import csv
+"""
+ploter.py — 论文级可视化
+
+读取 benchmark_raw.csv / benchmark_summary.csv / statistical_tests.csv，
+生成以下图表：
+  1. 折线图 + 95% CI 阴影带（核心对比图）
+  2. 箱线图 / 小提琴图（分布展示）
+  3. 综合四指标面板
+  4. 可扩展性分析图（不同任务规模下的表现）
+"""
+
+import os
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-from typing import Dict, List, Optional
+import matplotlib.pyplot as plt
+import matplotlib
+from itertools import combinations
+
+# ---- 全局样式 ----
+matplotlib.rcParams.update({
+    "font.sans-serif": ["SimHei", "Microsoft YaHei",
+                        "Arial Unicode MS", "DejaVu Sans"],
+    "axes.unicode_minus": False,
+    "figure.dpi": 150,
+    "savefig.dpi": 300,
+    "savefig.bbox": "tight",
+})
+
+# 配色与样式
+COLORS = {
+    "RoundRobin": "#1f77b4",
+    "HEFT":       "#9467bd",
+    "GA":         "#2ca02c",
+    "PSO":        "#d62728",
+    "RL":         "#ff7f0e",
+}
+MARKERS = {
+    "RoundRobin": "o",
+    "HEFT":       "D",
+    "GA":         "^",
+    "PSO":        "v",
+    "RL":         "s",
+}
+METRIC_LABELS = {
+    "makespan":         "总运行时间 Makespan (s)",
+    "avg_e2e_latency":  "平均端到端延迟 (s)",
+    "avg_utilization":  "平均资源利用率",
+    "load_balance_std": "负载均衡标准差",
+}
+# 标记哪些指标"越小越好"（用于高亮最优值）
+LOWER_IS_BETTER = {"makespan", "avg_e2e_latency", "load_balance_std"}
+
 
 class BenchmarkPlotter:
-    """基准测试结果可视化类"""
-    
-    def __init__(self, csv_file: str = "figs/benchmark_results.csv"):
-        """
-        初始化可视化器
-        
-        Args:
-            csv_file: CSV结果文件路径
-        """
-        self.csv_file = csv_file
-        self.data = None
-        
-        # 颜色和标记样式
-        self.colors = {
-            "RoundRobin": "#1f77b4",
-            "RL": "#ff7f0e", 
-            "GA": "#2ca02c",
-            "PSO": "#d62728",
-            "HEFT": "#9467bd"
-        }
-        
-        self.markers = {
-            "RoundRobin": "o",
-            "RL": "s",
-            "GA": "^",
-            "PSO": "D"
-        }
-        
-        self.line_styles = {
-            "RoundRobin": "-",
-            "RL": "--",
-            "GA": "-.",
-            "PSO": ":"
-        }
-        
-        # 设置中文字体
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans']
-        plt.rcParams['axes.unicode_minus'] = False
-    
-    def load_data(self) -> pd.DataFrame:
-        """从CSV文件加载数据"""
-        try:
-            self.data = pd.read_csv(self.csv_file)
-            print(f"成功加载数据，共 {len(self.data)} 行")
-            return self.data
-        except FileNotFoundError:
-            print(f"错误: 找不到文件 {self.csv_file}")
-            return None
-    
-    def plot_multi_metrics_comparison(self, metric: str = 'avg_completion_time', 
-                                     output_file: str = "figs/multi_metrics_comparison.png"):
-        """
-        绘制指定指标的对比图
-        
-        Args:
-            metric: 指标名称 ('总运行时间', '平均端到端延迟', '平均利用率', '负载均衡标准差')
-            output_file: 输出文件路径
-        """
-        if self.data is None:
-            self.load_data()
-            if self.data is None:
-                return
-        
-        # 指标名称映射
-        metric_labels = {
-            '总运行时间(makespan)': '总运行时间 (秒)',
-            '平均端到端延迟': '平均端到端延迟 (秒)',
-            '平均利用率': '资源利用率 (%)',
-            '负载均衡标准差': '负载均衡标准差'
-        }
-        
-        y_label = metric_labels.get(metric, metric)
-        
-        # 获取唯一的边缘服务器数量
-        edge_counts = sorted(self.data['边缘服务器数量'].unique())
-        schedulers = sorted(self.data['调度器'].unique())
-        
-        # 创建图形
-        fig, axes = plt.subplots(1, len(edge_counts), figsize=(15, 5))
-        
-        if len(edge_counts) == 1:
-            axes = [axes]
-        
-        # 对每种边缘服务器数量绘制一张图
-        for idx, edge_count in enumerate(edge_counts):
-            ax = axes[idx]
-            
-            # 为每个调度器收集数据
-            for scheduler in schedulers:
-                # 筛选数据
-                mask = (self.data['边缘服务器数量'] == edge_count) & (self.data['调度器'] == scheduler)
-                scheduler_data = self.data[mask].sort_values('任务数量')
-                
-                if len(scheduler_data) == 0:
-                    continue
-                
-                # 获取数据点
-                task_sizes = scheduler_data['任务数量'].values
-                metric_values = scheduler_data[metric].values
-                
-                # 绘制折线
-                ax.plot(
-                    task_sizes, metric_values,
-                    color=self.colors.get(scheduler, '#000000'),
-                    marker=self.markers.get(scheduler, 'o'),
-                    linestyle=self.line_styles.get(scheduler, '-'),
-                    linewidth=2,
-                    markersize=8,
-                    label=scheduler
-                )
-            
-            # 设置图表属性
-            ax.set_title(f'边缘服务器数量: {edge_count}', fontsize=14, fontweight='bold')
-            ax.set_xlabel('任务数量', fontsize=12)
-            ax.set_ylabel(y_label, fontsize=12)
-            ax.grid(True, alpha=0.3)
-            ax.legend(fontsize=10, loc='upper left')
-            
-            # 添加网格
-            ax.grid(True, alpha=0.3, linestyle='--')
-        
-        plt.suptitle(f'不同边缘服务器数量下的调度性能比较（{metric}）', 
-                    fontsize=16, fontweight='bold', y=1.02)
-        plt.tight_layout()
-        
-        # 确保目录存在
-        import os
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        
-        plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        plt.show()
-        
-        print(f"\n图表已保存到: {output_file}")
-    
-    def plot_bar_comparison(self, edge_count: int = 5, task_size: int = 45,
-                           output_file: str = "figs/bar_comparison.png"):
-        """
-        绘制柱状图比较不同调度器在特定配置下的表现
-        
-        Args:
-            edge_count: 边缘服务器数量
-            task_size: 任务数量
-            output_file: 输出文件路径
-        """
-        if self.data is None:
-            self.load_data()
-            if self.data is None:
-                return
-        
-        # 筛选特定配置的数据
-        mask = (self.data['边缘服务器数量'] == edge_count) & (self.data['任务数量'] == task_size)
-        subset_data = self.data[mask]
-        
-        if len(subset_data) == 0:
-            print(f"没有找到边缘服务器={edge_count}, 任务数量={task_size}的数据")
-            return
-        
-        schedulers = subset_data['调度器'].values
-        metrics = ['总运行时间(makespan)', '平均端到端延迟', '平均利用率', '负载均衡标准差']
-        
-        # 创建图形
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        axes = axes.flatten()
-        
-        # 为每个指标绘制柱状图
-        for idx, metric in enumerate(metrics):
-            ax = axes[idx]
-            
-            # 获取每个调度器的指标值
-            values = []
-            for scheduler in schedulers:
-                mask_scheduler = subset_data['调度器'] == scheduler
-                value = subset_data[mask_scheduler][metric].values[0]
-                values.append(value)
-            
-            # 创建柱状图
-            x_pos = np.arange(len(schedulers))
-            bars = ax.bar(x_pos, values, color=[self.colors.get(s, '#666666') for s in schedulers])
-            
-            # 设置图表属性
-            ax.set_title(f'{metric}', fontsize=14, fontweight='bold')
-            ax.set_xlabel('调度器', fontsize=12)
-            ax.set_ylabel(self._get_metric_unit(metric), fontsize=12)
-            ax.set_xticks(x_pos)
-            ax.set_xticklabels(schedulers, rotation=45)
-            
-            # 在柱子上添加数值标签
-            for bar, value in zip(bars, values):
-                height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
-                       f'{value:.2f}', ha='center', va='bottom', fontsize=10)
-            
-            # 添加网格
-            ax.grid(True, alpha=0.3, axis='y', linestyle='--')
-        
-        plt.suptitle(f'调度器性能比较 (边缘服务器={edge_count}, 任务数={task_size})', 
-                    fontsize=16, fontweight='bold', y=0.98)
-        plt.tight_layout()
-        
-        # 确保目录存在
-        import os
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        
-        plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        plt.show()
-        
-        print(f"\n图表已保存到: {output_file}")
-    
-    def _get_metric_unit(self, metric: str) -> str:
-        """获取指标的单位"""
-        units = {
-            '总运行时间': '秒',
-            '平均端到端延迟': '秒',
-            '平均利用率': '%',
-            '负载均衡标准差': '标准差'
-        }
-        return units.get(metric, '')
-    
-    def plot_heatmap(self, scheduler: str = "RL", metric: str = "总运行时间(makespan)",
-                    output_file: str = "figs/heatmap_comparison.png"):
-        """
-        绘制热力图展示不同配置下的性能
-        
-        Args:
-            scheduler: 调度器名称
-            metric: 指标名称
-            output_file: 输出文件路径
-        """
-        if self.data is None:
-            self.load_data()
-            if self.data is None:
-                return
-        
-        # 筛选特定调度器的数据
-        mask = self.data['调度器'] == scheduler
-        scheduler_data = self.data[mask]
-        
-        if len(scheduler_data) == 0:
-            print(f"没有找到调度器 '{scheduler}' 的数据")
-            return
-        
-        # 获取唯一的边缘服务器数量和任务数量
-        edge_counts = sorted(scheduler_data['边缘服务器数量'].unique())
-        task_sizes = sorted(scheduler_data['任务数量'].unique())
-        
-        # 创建数据矩阵
-        data_matrix = np.zeros((len(edge_counts), len(task_sizes)))
-        
-        # 填充数据矩阵
-        for i, edge_count in enumerate(edge_counts):
-            for j, task_size in enumerate(task_sizes):
-                mask_cell = (scheduler_data['边缘服务器数量'] == edge_count) & \
-                           (scheduler_data['任务数量'] == task_size)
-                
-                if scheduler_data[mask_cell][metric].any():
-                    data_matrix[i, j] = scheduler_data[mask_cell][metric].values[0]
-        
-        # 创建热力图
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        # 使用imshow绘制热力图
-        im = ax.imshow(data_matrix, cmap='YlOrRd', aspect='auto')
-        
-        # 设置坐标轴标签
-        ax.set_xticks(np.arange(len(task_sizes)))
-        ax.set_yticks(np.arange(len(edge_counts)))
-        ax.set_xticklabels(task_sizes)
-        ax.set_yticklabels(edge_counts)
-        
-        # 在每个格子中显示数值
-        for i in range(len(edge_counts)):
-            for j in range(len(task_sizes)):
-                text = ax.text(j, i, f'{data_matrix[i, j]:.1f}',
-                              ha="center", va="center", 
-                              color="black" if data_matrix[i, j] < np.max(data_matrix) * 0.7 else "white")
-        
-        # 设置标题和标签
-        ax.set_title(f'{scheduler}调度器 - {metric} 热力图', fontsize=16, fontweight='bold')
-        ax.set_xlabel('任务数量', fontsize=12)
-        ax.set_ylabel('边缘服务器数量', fontsize=12)
-        
-        # 添加颜色条
-        cbar = ax.figure.colorbar(im, ax=ax)
-        cbar.ax.set_ylabel(self._get_metric_unit(metric), rotation=-90, va="bottom")
-        
-        plt.tight_layout()
-        
-        # 确保目录存在
-        import os
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        
-        plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        plt.show()
-        
-        print(f"\n热力图已保存到: {output_file}")
-    
-    def plot_all_metrics_for_scheduler(self, scheduler: str, edge_count: int = 5,
-                                      output_file: str = "figs/scheduler_comprehensive.png"):
-        """
-        为特定调度器绘制所有指标的综合性图表
-        
-        Args:
-            scheduler: 调度器名称
-            edge_count: 边缘服务器数量
-            output_file: 输出文件路径
-        """
-        if self.data is None:
-            self.load_data()
-            if self.data is None:
-                return
-        
-        # 筛选特定调度器和边缘服务器数量的数据
-        mask = (self.data['调度器'] == scheduler) & (self.data['边缘服务器数量'] == edge_count)
-        scheduler_data = self.data[mask].sort_values('任务数量')
-        
-        if len(scheduler_data) == 0:
-            print(f"没有找到调度器 '{scheduler}' 在边缘服务器数量 {edge_count} 下的数据")
-            return
-        
-        # 获取任务数量列表
-        task_sizes = scheduler_data['任务数量'].values
-        
-        # 创建图形（2x2的子图）
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        axes = axes.flatten()
-        
-        # 定义要绘制的指标
-        metrics = [
-            ('总运行时间(makespan)', '总运行时间 (秒)'),
-            ('平均端到端延迟', '平均端到端延迟 (秒)'),
-            ('平均利用率', '资源利用率 (%)'),
-            ('负载均衡标准差', '负载均衡标准差')
-        ]
-        
-        # 为每个指标绘制折线图
-        for idx, (metric_col, metric_label) in enumerate(metrics):
-            ax = axes[idx]
-            
-            # 获取指标值
-            metric_values = scheduler_data[metric_col].values
-            
-            # 绘制折线图
-            ax.plot(task_sizes, metric_values, 
-                   color=self.colors.get(scheduler, '#000000'),
-                   marker=self.markers.get(scheduler, 'o'),
-                   linewidth=2, markersize=8)
-            
-            # 设置图表属性
-            ax.set_title(f'{metric_label}', fontsize=14, fontweight='bold')
-            ax.set_xlabel('任务数量', fontsize=12)
-            ax.set_ylabel(metric_label, fontsize=12)
-            ax.grid(True, alpha=0.3)
-            
-            # 填充区域
-            ax.fill_between(task_sizes, 0, metric_values, alpha=0.2, 
-                           color=self.colors.get(scheduler, '#000000'))
-        
-        plt.suptitle(f'{scheduler}调度器性能分析 (边缘服务器数量={edge_count})', 
-                    fontsize=16, fontweight='bold', y=0.98)
-        plt.tight_layout()
-        
-        # 确保目录存在
-        import os
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        
-        plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        plt.show()
-        
-        print(f"\n综合性图表已保存到: {output_file}")
-    
-    def generate_report(self, output_dir: str = "figs/report"):
-        """
-        生成完整的可视化报告
-        
-        Args:
-            output_dir: 输出目录
-        """
-        if self.data is None:
-            self.load_data()
-            if self.data is None:
-                return
-        
-        import os
-        os.makedirs(output_dir, exist_ok=True)
-        
-        print("开始生成可视化报告...")
+    """论文级基准测试可视化"""
 
-        # 1. 各指标对比图
-        metrics = ['总运行时间(makespan)', '平均端到端延迟', '平均利用率', '负载均衡标准差']
-        for metric in metrics:
-            filename = metric.replace('/', '_').replace('\\', '_')
-            self.plot_multi_metrics_comparison(
-                metric, 
-                os.path.join(output_dir, f"{filename}_comparison.png")
-            )
-        
-        # 2. 为每个调度器生成综合性图表
-        edge_counts = sorted(self.data['边缘服务器数量'].unique())
-        for scheduler in self.data['调度器'].unique():
-            for edge_count in edge_counts[:2]:  # 只生成前两个边缘服务器数量的图表
-                self.plot_all_metrics_for_scheduler(
-                    scheduler, edge_count,
-                    os.path.join(output_dir, f"{scheduler}_edge{edge_count}_comprehensive.png")
-                )
-        
-        # 3. 热力图
-        for scheduler in self.data['调度器'].unique():
-            self.plot_heatmap(
-                scheduler, '总运行时间(makespan)',
-                os.path.join(output_dir, f"{scheduler}_heatmap.png")
-            )
-        
-        print(f"\n所有图表已保存到: {output_dir}")
+    def __init__(self, data_dir: str = "figs"):
+        self.data_dir = data_dir
+        self.raw: pd.DataFrame | None = None
+        self.summary: pd.DataFrame | None = None
+        self.tests: pd.DataFrame | None = None
+
+    # ----------------------------------------------------------------
+    #  数据加载
+    # ----------------------------------------------------------------
+
+    def load(self):
+        raw_path = os.path.join(self.data_dir, "benchmark_raw.csv")
+        sum_path = os.path.join(self.data_dir, "benchmark_summary.csv")
+        tst_path = os.path.join(self.data_dir, "statistical_tests.csv")
+
+        if os.path.exists(raw_path):
+            self.raw = pd.read_csv(raw_path)
+            print(f"  原始数据: {len(self.raw)} 条")
+        if os.path.exists(sum_path):
+            self.summary = pd.read_csv(sum_path)
+            print(f"  汇总统计: {len(self.summary)} 条")
+        if os.path.exists(tst_path):
+            self.tests = pd.read_csv(tst_path)
+            print(f"  统计检验: {len(self.tests)} 条")
+
+        if self.raw is None:
+            raise FileNotFoundError(
+                f"找不到 {raw_path}，请先运行 brenchmark.py")
+
+    def _ensure_data(self):
+        if self.raw is None:
+            self.load()
+
+    # ----------------------------------------------------------------
+    #  1. 折线图 + 95% CI 阴影（核心对比图）
+    # ----------------------------------------------------------------
+
+    def plot_lines_with_ci(self, metric: str = "makespan",
+                           output_file: str | None = None):
+        """
+        横轴 = 任务规模，纵轴 = 指标均值
+        每条线 = 一个调度器，阴影 = 95% CI
+        每个边缘服务器数量一个子图
+        """
+        self._ensure_data()
+        df = self.summary[self.summary["metric"] == metric]
+
+        edge_counts = sorted(df["edge_servers"].unique())
+        n_cols = len(edge_counts)
+
+        fig, axes = plt.subplots(1, n_cols,
+                                  figsize=(6 * n_cols, 5), squeeze=False)
+
+        for idx, edge in enumerate(edge_counts):
+            ax = axes[0, idx]
+            sub = df[df["edge_servers"] == edge]
+
+            for sched in sub["scheduler"].unique():
+                sd = sub[sub["scheduler"] == sched].sort_values("task_count")
+                x = sd["task_count"].values
+                y = sd["mean"].values
+                lo = sd["ci_lower"].values
+                hi = sd["ci_upper"].values
+
+                color = COLORS.get(sched, "#333")
+                marker = MARKERS.get(sched, "o")
+
+                ax.plot(x, y, color=color, marker=marker,
+                        linewidth=2, markersize=7, label=sched)
+                ax.fill_between(x, lo, hi, color=color, alpha=0.15)
+
+            ax.set_title(f"边缘服务器 = {edge}", fontsize=13, fontweight="bold")
+            ax.set_xlabel("任务数量", fontsize=11)
+            if idx == 0:
+                ax.set_ylabel(METRIC_LABELS.get(metric, metric), fontsize=11)
+            ax.grid(True, alpha=0.3, linestyle="--")
+            ax.legend(fontsize=9, loc="best")
+
+        fig.suptitle(METRIC_LABELS.get(metric, metric),
+                     fontsize=15, fontweight="bold", y=1.02)
+        plt.tight_layout()
+
+        if output_file:
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            fig.savefig(output_file)
+            print(f"  保存: {output_file}")
+        plt.close(fig)
+
+    # ----------------------------------------------------------------
+    #  2. 箱线图（分布展示）
+    # ----------------------------------------------------------------
+
+    def plot_box(self, task_count: int = 300,
+                 output_file: str | None = None):
+        """
+        在指定任务规模下，展示各调度器 4 个指标的分布（箱线图）
+        """
+        self._ensure_data()
+        df = self.raw[self.raw["task_count"] == task_count]
+        if df.empty:
+            print(f"  无 task_count={task_count} 的数据")
+            return
+
+        edge_counts = sorted(df["edge_servers"].unique())
+        metrics = list(METRIC_LABELS.keys())
+
+        for edge in edge_counts:
+            sub = df[df["edge_servers"] == edge]
+            scheds = sorted(sub["scheduler"].unique())
+
+            fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+            for ax_idx, metric in enumerate(metrics):
+                ax = axes[ax_idx // 2, ax_idx % 2]
+
+                data_for_box = [
+                    sub.loc[sub["scheduler"] == s, metric].values
+                    for s in scheds
+                ]
+                bp = ax.boxplot(data_for_box, labels=scheds, patch_artist=True,
+                                widths=0.5, showmeans=True,
+                                meanprops=dict(marker="D", markerfacecolor="white",
+                                               markeredgecolor="black", markersize=6))
+
+                for patch, sched in zip(bp["boxes"], scheds):
+                    patch.set_facecolor(COLORS.get(sched, "#ccc"))
+                    patch.set_alpha(0.7)
+
+                # 显著性标注
+                self._annotate_significance(
+                    ax, scheds, data_for_box, metric, edge, task_count)
+
+                ax.set_title(METRIC_LABELS.get(metric, metric),
+                             fontsize=12, fontweight="bold")
+                ax.set_ylabel(METRIC_LABELS.get(metric, metric), fontsize=10)
+                ax.grid(True, alpha=0.3, axis="y", linestyle="--")
+
+            fig.suptitle(
+                f"调度器性能分布对比  |  边缘={edge}  任务={task_count}",
+                fontsize=14, fontweight="bold")
+            plt.tight_layout()
+
+            if output_file:
+                base, ext = os.path.splitext(output_file)
+                path = f"{base}_edge{edge}{ext}"
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                fig.savefig(path)
+                print(f"  保存: {path}")
+            plt.close(fig)
+
+    def _annotate_significance(self, ax, scheds, data_list,
+                               metric, edge, task_count):
+        """在箱线图上方标注显著性 * / ** / ***"""
+        if self.tests is None:
+            return
+        mask = ((self.tests["edge_servers"] == edge) &
+                (self.tests["task_count"] == task_count) &
+                (self.tests["metric"] == metric))
+        sig_df = self.tests[mask]
+        if sig_df.empty:
+            return
+
+        y_max = max(max(d) for d in data_list if len(d) > 0)
+        y_step = y_max * 0.06
+        level = 0
+
+        for _, row in sig_df.iterrows():
+            sig = row["significant"]
+            if not sig:
+                continue
+            try:
+                i = scheds.index(row["scheduler_A"])
+                j = scheds.index(row["scheduler_B"])
+            except ValueError:
+                continue
+
+            y = y_max + y_step * (level + 1)
+            ax.plot([i + 1, j + 1], [y, y], "k-", linewidth=1)
+            ax.text((i + j + 2) / 2, y, sig,
+                    ha="center", va="bottom", fontsize=9, fontweight="bold")
+            level += 1
+
+        if level > 0:
+            ax.set_ylim(top=y_max + y_step * (level + 2))
+
+    # ----------------------------------------------------------------
+    #  3. 四指标综合面板（某个边缘配置）
+    # ----------------------------------------------------------------
+
+    def plot_panel(self, edge_count: int = 5,
+                   output_file: str | None = None):
+        """2×2 面板：同一边缘配置下 4 个指标的折线 + CI"""
+        self._ensure_data()
+        metrics = list(METRIC_LABELS.keys())
+
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+        for ax_idx, metric in enumerate(metrics):
+            ax = axes[ax_idx // 2, ax_idx % 2]
+            df = self.summary[(self.summary["metric"] == metric) &
+                              (self.summary["edge_servers"] == edge_count)]
+
+            for sched in sorted(df["scheduler"].unique()):
+                sd = df[df["scheduler"] == sched].sort_values("task_count")
+                x = sd["task_count"].values
+                y = sd["mean"].values
+                lo = sd["ci_lower"].values
+                hi = sd["ci_upper"].values
+
+                color = COLORS.get(sched, "#333")
+                marker = MARKERS.get(sched, "o")
+                ax.plot(x, y, color=color, marker=marker,
+                        linewidth=2, markersize=6, label=sched)
+                ax.fill_between(x, lo, hi, color=color, alpha=0.12)
+
+            ax.set_title(METRIC_LABELS[metric], fontsize=12, fontweight="bold")
+            ax.set_xlabel("任务数量", fontsize=10)
+            ax.set_ylabel(METRIC_LABELS[metric], fontsize=10)
+            ax.grid(True, alpha=0.3, linestyle="--")
+            ax.legend(fontsize=8, loc="best")
+
+        fig.suptitle(f"综合性能面板  |  边缘服务器 = {edge_count}",
+                     fontsize=14, fontweight="bold")
+        plt.tight_layout()
+
+        if output_file:
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            fig.savefig(output_file)
+            print(f"  保存: {output_file}")
+        plt.close(fig)
+
+    # ----------------------------------------------------------------
+    #  4. 可扩展性柱状图（固定边缘，不同任务规模）
+    # ----------------------------------------------------------------
+
+    def plot_scalability_bars(self, metric: str = "makespan",
+                              output_file: str | None = None):
+        """分组柱状图：横轴 = 任务规模分组，每组内各调度器一根柱子"""
+        self._ensure_data()
+        df = self.summary[self.summary["metric"] == metric]
+        edge_counts = sorted(df["edge_servers"].unique())
+
+        fig, axes = plt.subplots(1, len(edge_counts),
+                                  figsize=(6 * len(edge_counts), 5),
+                                  squeeze=False)
+
+        for idx, edge in enumerate(edge_counts):
+            ax = axes[0, idx]
+            sub = df[df["edge_servers"] == edge]
+            scheds = sorted(sub["scheduler"].unique())
+            tasks = sorted(sub["task_count"].unique())
+
+            n_sched = len(scheds)
+            bar_width = 0.8 / n_sched
+            x_base = np.arange(len(tasks))
+
+            for si, sched in enumerate(scheds):
+                sd = sub[sub["scheduler"] == sched].sort_values("task_count")
+                means = sd["mean"].values
+                stds = sd["std"].values
+                x = x_base + si * bar_width
+
+                ax.bar(x, means, bar_width, yerr=stds, capsize=3,
+                       color=COLORS.get(sched, "#999"), alpha=0.85,
+                       label=sched, edgecolor="white", linewidth=0.5)
+
+            ax.set_title(f"边缘服务器 = {edge}", fontsize=13, fontweight="bold")
+            ax.set_xlabel("任务数量", fontsize=11)
+            if idx == 0:
+                ax.set_ylabel(METRIC_LABELS.get(metric, metric), fontsize=11)
+            ax.set_xticks(x_base + bar_width * (n_sched - 1) / 2)
+            ax.set_xticklabels(tasks)
+            ax.grid(True, alpha=0.3, axis="y", linestyle="--")
+            ax.legend(fontsize=8, loc="best")
+
+        fig.suptitle(f"可扩展性分析 — {METRIC_LABELS.get(metric, metric)}",
+                     fontsize=15, fontweight="bold", y=1.02)
+        plt.tight_layout()
+
+        if output_file:
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            fig.savefig(output_file)
+            print(f"  保存: {output_file}")
+        plt.close(fig)
+
+    # ----------------------------------------------------------------
+    #  5. 统计摘要表格（控制台输出）
+    # ----------------------------------------------------------------
+
+    def print_summary_table(self, task_count: int = 300):
+        """打印论文可用的均值±标准差表格"""
+        self._ensure_data()
+        df = self.summary[self.summary["task_count"] == task_count]
+        if df.empty:
+            print(f"  无 task_count={task_count} 的数据")
+            return
+
+        metrics = list(METRIC_LABELS.keys())
+
+        for edge in sorted(df["edge_servers"].unique()):
+            print(f"\n  边缘服务器 = {edge}, 任务 = {task_count}")
+            print(f"  {'调度器':<12s}", end="")
+            for m in metrics:
+                print(f" | {METRIC_LABELS[m][:12]:>14s}", end="")
+            print()
+            print("  " + "-" * 76)
+
+            sub = df[df["edge_servers"] == edge]
+            for sched in sorted(sub["scheduler"].unique()):
+                ss = sub[sub["scheduler"] == sched]
+                print(f"  {sched:<12s}", end="")
+                for m in metrics:
+                    row = ss[ss["metric"] == m]
+                    if row.empty:
+                        print(f" | {'N/A':>14s}", end="")
+                    else:
+                        mean = row["mean"].values[0]
+                        std = row["std"].values[0]
+                        print(f" | {mean:7.2f}±{std:<5.2f}", end="")
+                print()
+
+    # ================================================================
+    #  一键生成全部报告
+    # ================================================================
+
+    def generate_report(self, output_dir: str = "figs/report"):
+        """生成论文所需的全部图表"""
+        self._ensure_data()
+        os.makedirs(output_dir, exist_ok=True)
+
+        print("\n  生成论文图表...")
+
+        # 1) 各指标折线 + CI
+        for metric in METRIC_LABELS:
+            self.plot_lines_with_ci(
+                metric,
+                os.path.join(output_dir, f"lines_{metric}.png"))
+
+        # 2) 箱线图（取最大任务规模）
+        max_tasks = int(self.raw["task_count"].max())
+        self.plot_box(max_tasks,
+                      os.path.join(output_dir, "boxplot.png"))
+
+        # 3) 综合面板
+        for edge in sorted(self.raw["edge_servers"].unique()):
+            self.plot_panel(
+                edge,
+                os.path.join(output_dir, f"panel_edge{edge}.png"))
+
+        # 4) 可扩展性柱状图
+        for metric in ["makespan", "avg_e2e_latency"]:
+            self.plot_scalability_bars(
+                metric,
+                os.path.join(output_dir, f"scalability_{metric}.png"))
+
+        # 5) 摘要表格
+        for tc in sorted(self.raw["task_count"].unique()):
+            self.print_summary_table(tc)
+
+        print(f"\n  全部图表已保存到 {output_dir}/")
+
+
+# ================================================================
+#  命令行入口
+# ================================================================
 
 if __name__ == "__main__":
     plotter = BenchmarkPlotter()
