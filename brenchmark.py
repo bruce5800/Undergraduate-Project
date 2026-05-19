@@ -15,11 +15,14 @@ Output files:
 """
 
 import csv
+import json
 import os
+import subprocess
 import sys
 import time
 import random
 import argparse
+from datetime import datetime
 import numpy as np
 
 try:
@@ -431,7 +434,30 @@ if __name__ == "__main__":
     parser.add_argument(
         "--aigc-alpha", type=float, default=1.2,
         help="Zipf alpha for model popularity (default 1.2)")
+    parser.add_argument(
+        "--out", type=str, default="figs",
+        help="Output directory for CSVs (default: figs). "
+             "Use a labelled subdir like 'figs/m1_baseline' to keep runs separate.")
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Overwrite existing CSVs in --out (default: refuse)")
     args = parser.parse_args()
+
+    # ---- Output directory safety: refuse to silently overwrite ----
+    output_dir = args.out
+    expected_files = ["benchmark_raw.csv", "benchmark_summary.csv",
+                       "statistical_tests.csv"]
+    existing = [f for f in expected_files
+                if os.path.exists(os.path.join(output_dir, f))]
+    if existing and not args.force:
+        print(f"ERROR: {output_dir}/ already contains benchmark output:")
+        for f in existing:
+            print(f"  - {f}")
+        print()
+        print("To avoid overwriting historical data, do ONE of:")
+        print(f"  1) Write to a new subdir:  --out {output_dir}/run_{datetime.now().strftime('%Y%m%d_%H%M')}")
+        print(f"  2) Overwrite anyway:        --force")
+        sys.exit(1)
 
     if args.quick:
         num_runs    = 5
@@ -457,16 +483,44 @@ if __name__ == "__main__":
     print(f"  AIGC mode      : {args.aigc} "
           f"(zipf alpha={args.aigc_alpha})" if args.aigc else
           f"  AIGC mode      : off (generic DAG)")
+    print(f"  Output dir     : {output_dir}")
     print(f"  Total sim runs : {total}")
     print("=" * 70)
+
+    # ---- Write run manifest (config snapshot for later cross-run comparison) ----
+    os.makedirs(output_dir, exist_ok=True)
+    try:
+        git_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            stderr=subprocess.DEVNULL).decode().strip()
+    except Exception:
+        git_sha = "unknown"
+    manifest = {
+        "timestamp":   datetime.now().isoformat(timespec="seconds"),
+        "git_commit":  git_sha,
+        "num_runs":    num_runs,
+        "edge_counts": edge_counts,
+        "total_tasks": total_tasks,
+        "interval":    interval,
+        "aigc":        args.aigc,
+        "aigc_alpha":  args.aigc_alpha if args.aigc else None,
+        "quick":       args.quick,
+        "schedulers":  ["RoundRobin", "HEFT", "GA", "PSO", "RL"],
+        "cli_argv":    sys.argv,
+    }
+    with open(os.path.join(output_dir, "run_manifest.json"),
+              "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     tester = BenchmarkTester(num_runs=num_runs,
                               aigc_mode=args.aigc,
                               aigc_zipf_alpha=args.aigc_alpha)
     raw, summary = tester.run_benchmark(
         edge_counts, total_tasks=total_tasks,
-        checkpoint_interval=interval)
+        checkpoint_interval=interval,
+        output_dir=output_dir)
 
     print("\n" + "=" * 70)
-    print("  Done! Output files in figs/")
+    print(f"  Done! Output files in {output_dir}/")
     print("=" * 70)
