@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-05-19T16:04:39",
+  "git_commit": "b7cb0462280d376fbf34fcb44e7af7236795250e",
+  "num_runs": 5,
+  "edge_counts": [
+    3,
+    7
+  ],
+  "total_tasks": 300,
+  "interval": 20,
+  "aigc": true,
+  "aigc_alpha": 1.2,
+  "quick": true,
+  "schedulers": [
+    "RoundRobin",
+    "HEFT",
+    "GA",
+    "PSO",
+    "RL"
+  ],
+  "cli_argv": [
+    "brenchmark.py",
+    "--aigc",
+    "--out",
+    "figs/m1_aigc",
+    "--quick"
+  ]
+}
