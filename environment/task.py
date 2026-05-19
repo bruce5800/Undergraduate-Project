@@ -16,7 +16,8 @@ class Task:
                  input_size: float,      # 输入数据/模型内存占用 (GB)
                  output_size: float,     # 输出数据大小 (GB)，同时决定传输时间
                  dependencies: List[int],# 依赖任务ID列表
-                 priority=1
+                 priority=1,
+                 model_id: str = None    # M1: AIGC 推理模型 ID；None 表示通用任务（向后兼容）
                 ):
         self.task_id = task_id
         self.compute_demand = compute_demand
@@ -25,6 +26,7 @@ class Task:
         self.output_size = output_size
         self.dependencies = dependencies
         self.priority = priority
+        self.model_id = model_id  # M1: 指向 model_catalog.CATALOG 中的模型
 
         self.status = TaskStatus.WAITING
         self.ready_time = None      # 依赖满足、进入READY状态的时刻
@@ -32,6 +34,7 @@ class Task:
         self.end_time = None
         self.assigned_server = None  # 分配的服务器
         self.transfer_delay = 0.0   # 数据传输延迟（秒），由调度器设置
+        self.cold_load_delay = 0.0  # M1: 模型冷加载延迟（秒），由 server 设置
     
     def check_dependencies(self, completed_tasks: Set[int]) -> bool:
         return all(dep in completed_tasks for dep in self.dependencies)

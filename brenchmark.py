@@ -37,6 +37,7 @@ from scheduler.PSOscheduler import PSOScheduler
 from scheduler.RRscheduler import RoundRobinScheduler
 from environment.simulation import Simulation
 from environment.task import Task, TaskStatus
+from environment.model_catalog import assign_models_zipf
 
 
 # ====================================================================
@@ -45,9 +46,13 @@ from environment.task import Task, TaskStatus
 
 class BenchmarkTester:
 
-    def __init__(self, num_runs: int = 20, base_seed: int = 42):
+    def __init__(self, num_runs: int = 20, base_seed: int = 42,
+                 aigc_mode: bool = False, aigc_zipf_alpha: float = 1.2):
         self.num_runs = num_runs
         self.base_seed = base_seed
+        # M1: AIGC 模式 —— 给任务按 Zipf 分配模型 ID，触发冷加载与权重驻留物理
+        self.aigc_mode = aigc_mode
+        self.aigc_zipf_alpha = aigc_zipf_alpha
 
         self.schedulers = {
             "RoundRobin": RoundRobinScheduler,
@@ -78,6 +83,12 @@ class BenchmarkTester:
         all_tasks.extend(Task.generate_fork_join_dag(count1 + count2, count3))
 
         random.shuffle(all_tasks)
+
+        # M1: AIGC 模式下给所有任务分配模型 ID
+        if self.aigc_mode:
+            rng = random.Random(seed)  # 独立 RNG，不污染上面的全局 random
+            assign_models_zipf(all_tasks, rng, alpha=self.aigc_zipf_alpha)
+
         sim.add_tasks(all_tasks)
         return sim
 
@@ -413,6 +424,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--quick", action="store_true",
         help="Quick mode: 5 runs, edge=[3,7]")
+    parser.add_argument(
+        "--aigc", action="store_true",
+        help="AIGC mode: assign models to tasks (Zipf distribution), "
+             "exercises cold-load + LRU eviction physics")
+    parser.add_argument(
+        "--aigc-alpha", type=float, default=1.2,
+        help="Zipf alpha for model popularity (default 1.2)")
     args = parser.parse_args()
 
     if args.quick:
@@ -436,10 +454,15 @@ if __name__ == "__main__":
     print(f"  Checkpoint     : every {interval} tasks "
           f"({n_checkpoints} data points / run)")
     print(f"  Schedulers     : RoundRobin, HEFT, GA, PSO, RL")
+    print(f"  AIGC mode      : {args.aigc} "
+          f"(zipf alpha={args.aigc_alpha})" if args.aigc else
+          f"  AIGC mode      : off (generic DAG)")
     print(f"  Total sim runs : {total}")
     print("=" * 70)
 
-    tester = BenchmarkTester(num_runs=num_runs)
+    tester = BenchmarkTester(num_runs=num_runs,
+                              aigc_mode=args.aigc,
+                              aigc_zipf_alpha=args.aigc_alpha)
     raw, summary = tester.run_benchmark(
         edge_counts, total_tasks=total_tasks,
         checkpoint_interval=interval)
