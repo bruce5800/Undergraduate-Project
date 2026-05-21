@@ -1,0 +1,242 @@
+<mxfile host="app.diagrams.net" modified="2026-05-21T17:00:00.000Z" agent="Mozilla/5.0" version="22.1.0" type="device">
+  <diagram name="Distributed Transformer Training" id="fig-transformer">
+    <mxGraphModel dx="1422" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="980" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ====== Title ====== -->
+        <mxCell id="title" value="Distributed Transformer Training: DP + TP + PP Combined (background)"
+                style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;"
+                vertex="1" parent="1">
+          <mxGeometry x="300" y="20" width="800" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Legend (top-right) ====== -->
+        <mxCell id="legend_box" value="&lt;b&gt;Legend&lt;/b&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=12;verticalAlign=top;spacingTop=8;align=left;spacingLeft=10;"
+                vertex="1" parent="1">
+          <mxGeometry x="1110" y="120" width="270" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_fwd_line" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=2;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1130" y="160" as="sourcePoint" />
+            <mxPoint x="1190" y="160" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend_fwd_text" value="forward data flow"
+                style="text;html=1;align=left;fontSize=11;"
+                vertex="1" parent="1">
+          <mxGeometry x="1200" y="150" width="170" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_bwd_line" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;dashed=1;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1130" y="195" as="sourcePoint" />
+            <mxPoint x="1190" y="195" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend_bwd_text" value="backward gradient"
+                style="text;html=1;align=left;fontSize=11;"
+                vertex="1" parent="1">
+          <mxGeometry x="1200" y="185" width="170" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_sync_line" style="endArrow=none;html=1;strokeColor=#9673a6;strokeWidth=3;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1130" y="230" as="sourcePoint" />
+            <mxPoint x="1190" y="230" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend_sync_text" value="AllReduce param sync"
+                style="text;html=1;align=left;fontSize=11;"
+                vertex="1" parent="1">
+          <mxGeometry x="1200" y="220" width="170" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_pp_line" style="endArrow=classic;html=1;strokeColor=#d6b656;strokeWidth=2;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1130" y="262" as="sourcePoint" />
+            <mxPoint x="1190" y="262" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend_pp_text" value="pipeline activation"
+                style="text;html=1;align=left;fontSize=11;"
+                vertex="1" parent="1">
+          <mxGeometry x="1200" y="252" width="170" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Section bar ====== -->
+        <mxCell id="sec_bar" value="Forward + Backward + Parameter Sync across DP / TP / PP"
+                style="rounded=0;whiteSpace=wrap;html=1;fillColor=#666666;strokeColor=#666666;fontColor=#FFFFFF;fontSize=13;fontStyle=1;align=left;spacingLeft=15;"
+                vertex="1" parent="1">
+          <mxGeometry x="50" y="70" width="1040" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Input Layer ====== -->
+        <mxCell id="input_layer" value="&lt;b&gt;Input Layer&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;Data Parallel: batch split across N workers&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="430" y="120" width="450" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Embedding Layer ====== -->
+        <mxCell id="embed_layer" value="&lt;b&gt;Embedding Layer&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;Tensor Parallel: vocab matrix shard across TP ranks&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="380" y="230" width="550" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Encoder section ====== -->
+        <mxCell id="enc_bar" value="① Encoder — Pipeline Parallel (12 layers split into 3 stages, each stage on a separate device)"
+                style="rounded=0;whiteSpace=wrap;html=1;fillColor=#b85450;strokeColor=#b85450;fontColor=#FFFFFF;fontSize=13;fontStyle=1;align=left;spacingLeft=15;"
+                vertex="1" parent="1">
+          <mxGeometry x="50" y="340" width="1040" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="enc_s1" value="&lt;b&gt;PP Stage 1&lt;/b&gt;&lt;br&gt;&lt;br&gt;Layers 1 — 4&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;(device 1)&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="120" y="390" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="enc_s2" value="&lt;b&gt;PP Stage 2&lt;/b&gt;&lt;br&gt;&lt;br&gt;Layers 5 — 8&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;(device 2)&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="430" y="390" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="enc_s3" value="&lt;b&gt;PP Stage 3&lt;/b&gt;&lt;br&gt;&lt;br&gt;Layers 9 — 12&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;(device 3)&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="740" y="390" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Decoder section ====== -->
+        <mxCell id="dec_bar" value="② Decoder — Hybrid (PP × TP × DP, attention heads split via TP within each PP stage)"
+                style="rounded=0;whiteSpace=wrap;html=1;fillColor=#b85450;strokeColor=#b85450;fontColor=#FFFFFF;fontSize=13;fontStyle=1;align=left;spacingLeft=15;"
+                vertex="1" parent="1">
+          <mxGeometry x="50" y="530" width="1040" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dec_s1" value="&lt;b&gt;PP Stage 1&lt;/b&gt;&lt;br&gt;&lt;br&gt;Layers 1 — 4&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;TP heads, DP replicas&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="120" y="580" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dec_s2" value="&lt;b&gt;PP Stage 2&lt;/b&gt;&lt;br&gt;&lt;br&gt;Layers 5 — 8&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;TP heads, DP replicas&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="430" y="580" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dec_s3" value="&lt;b&gt;PP Stage 3&lt;/b&gt;&lt;br&gt;&lt;br&gt;Layers 9 — 12&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;TP heads, DP replicas&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="740" y="580" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Output Layer ====== -->
+        <mxCell id="output_layer" value="&lt;b&gt;Output Layer&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;DP + TP (logits projected, vocabulary partitioned)&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="380" y="720" width="550" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Persistence (now connected!) ====== -->
+        <mxCell id="persist_bar" value="③ Sharded Optimizer State (ZeRO style)"
+                style="rounded=0;whiteSpace=wrap;html=1;fillColor=#666666;strokeColor=#666666;fontColor=#FFFFFF;fontSize=13;fontStyle=1;align=left;spacingLeft=15;"
+                vertex="1" parent="1">
+          <mxGeometry x="50" y="830" width="1040" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="persist_layer" value="&lt;b&gt;Optimizer State Shards&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;each DP rank holds 1/N of optimizer state (momentum, variance) — ZeRO Stage 3&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="250" y="880" width="800" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Forward arrows (blue) ====== -->
+        <mxCell id="fwd_1" style="endArrow=classic;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#6c8ebf;strokeWidth=2;"
+                edge="1" parent="1" source="input_layer" target="embed_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fwd_2" style="endArrow=classic;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#6c8ebf;strokeWidth=2;"
+                edge="1" parent="1" source="embed_layer" target="enc_s1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fwd_5" style="endArrow=classic;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#6c8ebf;strokeWidth=2;"
+                edge="1" parent="1" source="enc_s3" target="dec_s1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fwd_8" style="endArrow=classic;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#6c8ebf;strokeWidth=2;"
+                edge="1" parent="1" source="dec_s3" target="output_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Pipeline activation arrows (yellow, between PP stages) ====== -->
+        <mxCell id="pp_e1_e2" style="endArrow=classic;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#d6b656;strokeWidth=2;"
+                edge="1" parent="1" source="enc_s1" target="enc_s2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pp_e2_e3" style="endArrow=classic;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#d6b656;strokeWidth=2;"
+                edge="1" parent="1" source="enc_s2" target="enc_s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pp_d1_d2" style="endArrow=classic;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#d6b656;strokeWidth=2;"
+                edge="1" parent="1" source="dec_s1" target="dec_s2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="pp_d2_d3" style="endArrow=classic;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#d6b656;strokeWidth=2;"
+                edge="1" parent="1" source="dec_s2" target="dec_s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Backward gradient arrows (red dashed) ====== -->
+        <mxCell id="bwd_1" style="endArrow=classic;html=1;exitX=0.6;exitY=0;entryX=0.6;entryY=1;strokeColor=#b85450;strokeWidth=2;dashed=1;"
+                edge="1" parent="1" source="output_layer" target="dec_s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bwd_2" style="endArrow=classic;html=1;exitX=0.6;exitY=0;entryX=0.6;entryY=1;strokeColor=#b85450;strokeWidth=2;dashed=1;"
+                edge="1" parent="1" source="dec_s1" target="enc_s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bwd_3" style="endArrow=classic;html=1;exitX=0.6;exitY=0;entryX=0.6;entryY=1;strokeColor=#b85450;strokeWidth=2;dashed=1;"
+                edge="1" parent="1" source="enc_s1" target="embed_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ====== AllReduce sync line (purple, horizontal between encoder & decoder ranks) ====== -->
+        <mxCell id="sync_enc" value="AllReduce (TP)"
+                style="endArrow=none;html=1;strokeColor=#9673a6;strokeWidth=3;fontSize=10;verticalAlign=bottom;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="120" y="440" as="sourcePoint" />
+            <mxPoint x="1020" y="440" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="sync_dec" value="AllReduce (TP)"
+                style="endArrow=none;html=1;strokeColor=#9673a6;strokeWidth=3;fontSize=10;verticalAlign=bottom;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="120" y="630" as="sourcePoint" />
+            <mxPoint x="1020" y="630" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ====== Persistence connection: optimizer ↔ output (param load + checkpoint) ====== -->
+        <mxCell id="persist_load" value="load weights" style="endArrow=classic;html=1;exitX=0.3;exitY=0;entryX=0.4;entryY=1;strokeColor=#666666;strokeWidth=1.5;fontSize=10;dashed=1;"
+                edge="1" parent="1" source="persist_layer" target="output_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="persist_save" value="checkpoint" style="endArrow=classic;html=1;exitX=0.6;exitY=1;entryX=0.7;entryY=0;strokeColor=#666666;strokeWidth=1.5;fontSize=10;dashed=1;"
+                edge="1" parent="1" source="output_layer" target="persist_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
