@@ -50,12 +50,15 @@ from environment.model_catalog import assign_models_zipf
 class BenchmarkTester:
 
     def __init__(self, num_runs: int = 20, base_seed: int = 42,
-                 aigc_mode: bool = False, aigc_zipf_alpha: float = 1.2):
+                 aigc_mode: bool = False, aigc_zipf_alpha: float = 1.2,
+                 workload: str = "dag"):
         self.num_runs = num_runs
         self.base_seed = base_seed
         # M1: AIGC 模式 —— 给任务按 Zipf 分配模型 ID，触发冷加载与权重驻留物理
         self.aigc_mode = aigc_mode
         self.aigc_zipf_alpha = aigc_zipf_alpha
+        # M2: workload 类型 —— "dag" (通用三种 DAG) 或 "inference" (prefill/decode 推理请求)
+        self.workload = workload
 
         self.schedulers = {
             "RoundRobin": RoundRobinScheduler,
@@ -76,21 +79,34 @@ class BenchmarkTester:
 
         sim = Simulation(num_servers=num_edge_servers)
 
-        count1 = task_count // 3
-        count2 = task_count // 3
-        count3 = task_count - count1 - count2
+        if self.workload == "inference":
+            # M2: LLM 推理负载 —— task_count 个 task 单位 = task_count/2 个推理请求
+            num_requests = max(task_count // 2, 1)
+            rng = random.Random(seed)
+            all_tasks = Task.generate_inference_workload(
+                num_requests=num_requests,
+                task_id_offset=0,
+                rng=rng,
+            )
+            # 不 shuffle —— 依赖关系由 task.dependencies 保证，保留请求级顺序
+            # 便于调试观察。
+        else:
+            # 默认：3 种通用 DAG 混合
+            count1 = task_count // 3
+            count2 = task_count // 3
+            count3 = task_count - count1 - count2
 
-        all_tasks = []
-        all_tasks.extend(Task.generate_single_dag(0, count1))
-        all_tasks.extend(Task.generate_linear_dag(count1, count2))
-        all_tasks.extend(Task.generate_fork_join_dag(count1 + count2, count3))
+            all_tasks = []
+            all_tasks.extend(Task.generate_single_dag(0, count1))
+            all_tasks.extend(Task.generate_linear_dag(count1, count2))
+            all_tasks.extend(Task.generate_fork_join_dag(count1 + count2, count3))
 
-        random.shuffle(all_tasks)
+            random.shuffle(all_tasks)
 
-        # M1: AIGC 模式下给所有任务分配模型 ID
-        if self.aigc_mode:
-            rng = random.Random(seed)  # 独立 RNG，不污染上面的全局 random
-            assign_models_zipf(all_tasks, rng, alpha=self.aigc_zipf_alpha)
+            # M1: AIGC 模式下给所有任务分配模型 ID
+            if self.aigc_mode:
+                rng = random.Random(seed)  # 独立 RNG，不污染上面的全局 random
+                assign_models_zipf(all_tasks, rng, alpha=self.aigc_zipf_alpha)
 
         sim.add_tasks(all_tasks)
         return sim
@@ -428,9 +444,14 @@ if __name__ == "__main__":
         "--quick", action="store_true",
         help="Quick mode: 5 runs, edge=[3,7]")
     parser.add_argument(
+        "--workload", type=str, choices=["dag", "inference"], default="dag",
+        help="Workload type: 'dag' (3 generic DAG patterns, default) or "
+             "'inference' (M2: LLM prefill/decode requests). "
+             "In inference mode --tasks N produces N/2 requests (= N tasks).")
+    parser.add_argument(
         "--aigc", action="store_true",
-        help="AIGC mode: assign models to tasks (Zipf distribution), "
-             "exercises cold-load + LRU eviction physics")
+        help="AIGC mode (dag workload only): assign models to tasks via Zipf. "
+             "Ignored in inference workload (always model-assigned).")
     parser.add_argument(
         "--aigc-alpha", type=float, default=1.2,
         help="Zipf alpha for model popularity (default 1.2)")
@@ -471,18 +492,28 @@ if __name__ == "__main__":
     n_checkpoints = total_tasks // interval
     total = len(edge_counts) * 5 * num_runs
 
+    # ---- Print run header ----
+    if args.workload == "inference":
+        workload_desc = (f"inference (LLM prefill/decode, "
+                         f"~{total_tasks // 2} requests = {total_tasks} tasks)")
+        aigc_line = "  AIGC physics   : implicit (every task has model_id)"
+    else:
+        workload_desc = "dag (3 generic patterns)"
+        aigc_line = (f"  AIGC mode      : {args.aigc} "
+                     f"(zipf alpha={args.aigc_alpha})" if args.aigc else
+                     "  AIGC mode      : off")
+
     print("=" * 70)
     print("  Cloud-Edge Scheduling Benchmark (Publication-grade)")
     print("=" * 70)
     print(f"  Runs / config  : {num_runs}")
     print(f"  Edge servers   : {edge_counts}")
+    print(f"  Workload       : {workload_desc}")
     print(f"  Total tasks    : {total_tasks}")
     print(f"  Checkpoint     : every {interval} tasks "
           f"({n_checkpoints} data points / run)")
     print(f"  Schedulers     : RoundRobin, HEFT, GA, PSO, RL")
-    print(f"  AIGC mode      : {args.aigc} "
-          f"(zipf alpha={args.aigc_alpha})" if args.aigc else
-          f"  AIGC mode      : off (generic DAG)")
+    print(aigc_line)
     print(f"  Output dir     : {output_dir}")
     print(f"  Total sim runs : {total}")
     print("=" * 70)
@@ -501,10 +532,12 @@ if __name__ == "__main__":
         "git_commit":  git_sha,
         "num_runs":    num_runs,
         "edge_counts": edge_counts,
+        "workload":    args.workload,
         "total_tasks": total_tasks,
         "interval":    interval,
-        "aigc":        args.aigc,
-        "aigc_alpha":  args.aigc_alpha if args.aigc else None,
+        "aigc":        args.aigc and args.workload == "dag",
+        "aigc_alpha":  (args.aigc_alpha
+                        if args.aigc and args.workload == "dag" else None),
         "quick":       args.quick,
         "schedulers":  ["RoundRobin", "HEFT", "GA", "PSO", "RL"],
         "cli_argv":    sys.argv,
@@ -515,7 +548,8 @@ if __name__ == "__main__":
 
     tester = BenchmarkTester(num_runs=num_runs,
                               aigc_mode=args.aigc,
-                              aigc_zipf_alpha=args.aigc_alpha)
+                              aigc_zipf_alpha=args.aigc_alpha,
+                              workload=args.workload)
     raw, summary = tester.run_benchmark(
         edge_counts, total_tasks=total_tasks,
         checkpoint_interval=interval,
