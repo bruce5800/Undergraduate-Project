@@ -16,8 +16,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from environment.task import TaskStatus, Task
+from environment.task import TaskStatus, Task, TaskKind
 from environment.server import ServerType
+from environment.model_catalog import CATALOG
 from scheduler.base import BaseScheduler
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,17 @@ logger = logging.getLogger(__name__)
 # ================================================================
 
 class StateEncoder:
-    """将环境观测编码为固定长度特征向量"""
+    """将环境观测编码为固定长度特征向量。
+
+    M3 step 2 升级：state 暴露 AIGC 物理可观测量
+      - 任务侧：kind (PREFILL/DECODE/GENERIC)、KV cache 大小、model one-hot
+      - 服务器侧：是否加载本任务的模型、当前同模同阶段并发数、显存余量、
+                  冷加载代价、是否是同请求 prefill 所在服务器（亲和性信号）
+    """
+
+    # 固定排序的 model_id 列表，用于稳定的 one-hot 编码索引
+    _MODEL_IDS = sorted(CATALOG.keys())
+    _MODEL_INDEX = {mid: i for i, mid in enumerate(_MODEL_IDS)}
 
     def __init__(self, sim_env):
         self.sim = sim_env
@@ -40,10 +51,15 @@ class StateEncoder:
         )
         self._successor_count: dict = {}
 
+    # ----------------------------------------------------------------
+    #  特征编码主入口
+    # ----------------------------------------------------------------
+
     def encode(self, task, ready_task_count: int = 0) -> torch.FloatTensor:
         features: list[float] = []
 
-        # ---- 任务特征 (6 维) ----
+        # ============= 任务侧特征 =============
+        # ---- 基础 (6 维) ----
         features.append(task.compute_demand / 20.0)
         features.append(task.workload / 2000.0)
         features.append(task.input_size / 8.0)
@@ -51,15 +67,31 @@ class StateEncoder:
         features.append(len(task.dependencies) / 5.0)
         features.append(self._get_successor_count(task) / 5.0)
 
-        # ---- 全局状态 (2 维) ----
+        # ---- M3: AIGC 任务特征 (4 + |M| 维) ----
+        kind = getattr(task, "kind", TaskKind.GENERIC)
+        features.append(1.0 if kind == TaskKind.GENERIC else 0.0)
+        features.append(1.0 if kind == TaskKind.PREFILL else 0.0)
+        features.append(1.0 if kind == TaskKind.DECODE else 0.0)
+        features.append(getattr(task, "kv_cache_GB", 0.0) / 5.0)
+        # model one-hot
+        model_onehot = [0.0] * len(self._MODEL_IDS)
+        if task.model_id in self._MODEL_INDEX:
+            model_onehot[self._MODEL_INDEX[task.model_id]] = 1.0
+        features.extend(model_onehot)
+
+        # ============= 全局状态 (2 维) =============
         features.append(ready_task_count / 50.0)
         completed_ratio = len(self.sim.completed_tasks) / max(len(self.sim.tasks), 1)
         features.append(completed_ratio)
 
-        # ---- 各服务器状态 (每台 5 维) ----
-        src = task.assigned_server if task.assigned_server is not None else self._cloud_id
+        # ============= 服务器侧特征（每台 10 维）=============
+        src = task.assigned_server if task.assigned_server is not None \
+            else self._cloud_id
+        sibling_server_id = self._get_sibling_server_id(task)
+
         for sid in self.server_ids:
             server = self.sim.servers[sid]
+            # ---- 基础 5 维（原有）----
             features.append(server.used_compute / max(server.total_compute, 1e-6))
             features.append(server.used_memory / max(server.total_memory, 1e-6))
             features.append(server.bandwidth / 1000.0)
@@ -68,11 +100,39 @@ class StateEncoder:
                 src, sid, task.output_size)
             features.append(transfer / 10.0)
 
+            # ---- M3: AIGC 服务器特征 5 维 ----
+            # 1) is_my_model_loaded：当前模型是否在该服务器（避免冷加载）
+            is_loaded = (task.model_id is not None
+                         and task.model_id in server.loaded_models)
+            features.append(1.0 if is_loaded else 0.0)
+            # 2) batch_count：同模同阶段并发数（归一化到 max_batch_size）
+            batch_count = server._current_batch_size(task.model_id, kind)
+            max_b = (CATALOG[task.model_id].max_batch_size
+                     if task.model_id in CATALOG else 1)
+            features.append(batch_count / max(max_b, 1))
+            # 3) vram_free / total
+            vram_free = (server.total_memory
+                         - server.used_memory
+                         - server.weight_vram_used)
+            features.append(max(vram_free, 0.0) / max(server.total_memory, 1e-6))
+            # 4) cold_load_cost：归一化到 30s
+            cold = server.cold_load_cost(task.model_id) \
+                if task.model_id is not None else 0.0
+            features.append(cold / 30.0)
+            # 5) is_sibling_server：本服务器是否是同请求 prefill 所在地
+            features.append(1.0 if sid == sibling_server_id else 0.0)
+
         return torch.FloatTensor(features)
 
     @property
     def state_dim(self) -> int:
-        return 8 + 5 * len(self.server_ids)
+        # 任务 (10+|M|) + 全局 (2) + 每台服务器 10
+        return (10 + len(self._MODEL_IDS) + 2
+                + 10 * len(self.server_ids))
+
+    # ----------------------------------------------------------------
+    #  内部辅助
+    # ----------------------------------------------------------------
 
     def _get_successor_count(self, task) -> int:
         tid = task.task_id
@@ -80,6 +140,20 @@ class StateEncoder:
             cnt = sum(1 for t in self.sim.tasks.values() if tid in t.dependencies)
             self._successor_count[tid] = cnt
         return self._successor_count[tid]
+
+    def _get_sibling_server_id(self, task):
+        """对于 DECODE 任务，找到它依赖的 prefill 已被分配到哪台服务器。
+
+        若 task 不是 DECODE 或 prefill 还未分配，返回 None。
+        用于"序列亲和性"信号：让 RL 看到"我的 KV cache 在哪里"。
+        """
+        if getattr(task, "kind", None) != TaskKind.DECODE:
+            return None
+        for dep_id in task.dependencies:
+            dep = self.sim.tasks.get(dep_id)
+            if dep is not None and dep.assigned_server is not None:
+                return dep.assigned_server
+        return None
 
 
 # ================================================================
@@ -284,6 +358,13 @@ class RLScheduler(BaseScheduler):
     # =============================================================
 
     def calculate_reward(self, task, server, transfer_time: float) -> float:
+        """M3 step 2 升级版多目标奖励。
+
+        老 3 项（time / balance / match）保持，加入 3 项 AIGC 行为奖励：
+          - warm_bonus: 模型已在该服务器上 → 避免冷加载（论文核心 affinity）
+          - batch_bonus: 加入已存在的同模 batch → 拿到吞吐红利
+          - affinity_bonus: DECODE 落在它 prefill 所在的服务器 → 0 KV 迁移
+        """
         exec_time = task.workload / max(server.total_compute, 1e-6)
         total_time = exec_time + transfer_time
 
@@ -298,7 +379,52 @@ class RLScheduler(BaseScheduler):
         # 3) 资源匹配度
         match_reward = min(task.compute_demand / max(server.total_compute, 1e-6), 1.0)
 
-        return 0.5 * time_reward + 0.3 * balance_reward + 0.2 * match_reward
+        # ---- M3: AIGC 奖励 ----
+        # 4) Warm bonus: 模型已加载 → +1；否则按冷加载秒数衰减到 [-1, 0]
+        if task.model_id is None or task.model_id not in CATALOG:
+            warm_bonus = 0.0
+        elif task.model_id in server.loaded_models:
+            warm_bonus = 1.0
+        else:
+            cold_sec = CATALOG[task.model_id].cold_load_sec
+            warm_bonus = max(-1.0, -cold_sec / 20.0)
+
+        # 5) Batch bonus: 加入已存在的同模同阶段 batch（不含自己）
+        kind = getattr(task, "kind", TaskKind.GENERIC)
+        if kind in (TaskKind.PREFILL, TaskKind.DECODE) and task.model_id in CATALOG:
+            existing_batch = server._current_batch_size(task.model_id, kind)
+            max_b = CATALOG[task.model_id].max_batch_size
+            if existing_batch == 0:
+                batch_bonus = 0.0  # 首个不算 batch
+            elif existing_batch >= max_b:
+                batch_bonus = -0.5  # batch 已满，应该被 admission control 拒
+            else:
+                # decode batch 收益高（overhead 低），prefill 收益小（overhead 高）
+                weight = 1.0 if kind == TaskKind.DECODE else 0.4
+                batch_bonus = min(1.0, weight * existing_batch / max(max_b, 1) * 4.0)
+        else:
+            batch_bonus = 0.0
+
+        # 6) Affinity bonus: DECODE 落在 prefill 服务器
+        affinity_bonus = 0.0
+        if kind == TaskKind.DECODE:
+            for dep_id in task.dependencies:
+                dep = self.sim.tasks.get(dep_id)
+                if dep is not None and dep.assigned_server == server.server_id:
+                    affinity_bonus = 1.0
+                    break
+            else:
+                # 同请求 prefill 在别处 → 付 KV 迁移代价（output_size 已经计了），
+                # 这里再给个明确信号
+                if task.output_size > 0.1:  # KV 较大才惩罚明显
+                    affinity_bonus = -0.5
+
+        return (0.30 * time_reward
+                + 0.15 * balance_reward
+                + 0.10 * match_reward
+                + 0.15 * warm_bonus
+                + 0.20 * batch_bonus
+                + 0.10 * affinity_bonus)
 
     # =============================================================
     #  经验存储与 PPO 更新
