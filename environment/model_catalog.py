@@ -37,6 +37,12 @@ class ModelSpec:
     steps_default: int = 0
     activation_GB_per_image: float = 0.0
 
+    # ---- M4 step2: 内存带宽下限（s / token）----
+    # 真实 LLM 推理受 GPU HBM 带宽约束（尤其 decode 阶段），即使算力无限大，
+    # 单 token 也要这么长时间。数量级参考 vLLM / TensorRT-LLM 公开 benchmark。
+    prefill_floor_sec_per_token: float = 0.0
+    decode_floor_sec_per_token: float = 0.0
+
 
 # ------------------------------------------------------------
 # 模型目录
@@ -58,6 +64,9 @@ CATALOG: dict[str, ModelSpec] = {
         prefill_tflops_per_ktoken=14.0,
         decode_tflops_per_ktoken=0.5,
         max_batch_size=32,
+        # ~50 tok/s decode, ~1000 tok/s prefill on A100-class（vLLM benchmark）
+        decode_floor_sec_per_token=0.020,
+        prefill_floor_sec_per_token=0.001,
     ),
     "llama-13b": ModelSpec(
         model_id="llama-13b",
@@ -68,6 +77,8 @@ CATALOG: dict[str, ModelSpec] = {
         prefill_tflops_per_ktoken=26.0,
         decode_tflops_per_ktoken=0.9,
         max_batch_size=16,
+        decode_floor_sec_per_token=0.030,
+        prefill_floor_sec_per_token=0.0015,
     ),
     "llama-70b": ModelSpec(
         model_id="llama-70b",
@@ -80,6 +91,8 @@ CATALOG: dict[str, ModelSpec] = {
         prefill_tflops_per_ktoken=140.0,
         decode_tflops_per_ktoken=5.0,
         max_batch_size=8,
+        decode_floor_sec_per_token=0.080,
+        prefill_floor_sec_per_token=0.005,
     ),
     "sdxl": ModelSpec(
         model_id="sdxl",

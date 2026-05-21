@@ -71,7 +71,9 @@ class BenchmarkTester:
                  workload: str = "dag",
                  ablation: str = "none",
                  ttft_slo: float = 2.0,
-                 tpot_slo: float = 0.1):
+                 tpot_slo: float = 0.1,
+                 trace_preset: str = "uniform",
+                 arrival_rate: float = None):
         self.num_runs = num_runs
         self.base_seed = base_seed
         # M1: AIGC 模式 —— 给任务按 Zipf 分配模型 ID，触发冷加载与权重驻留物理
@@ -84,6 +86,9 @@ class BenchmarkTester:
         # M4 step1: AIGC SLO 阈值 —— 用于 slo_attainment 指标
         self.ttft_slo = ttft_slo
         self.tpot_slo = tpot_slo
+        # M4 step2: trace 配置 —— prompt/output 分布 + Poisson 到达率
+        self.trace_preset = trace_preset
+        self.arrival_rate = arrival_rate
 
         self.schedulers = {
             "RoundRobin": RoundRobinScheduler,
@@ -142,6 +147,9 @@ class BenchmarkTester:
                 num_requests=num_requests,
                 task_id_offset=0,
                 rng=rng,
+                # M4 step2: 选择 prompt/output 分布与 Poisson 到达率
+                dist=self.trace_preset,
+                arrival_rate=self.arrival_rate,
             )
             # 不 shuffle —— 依赖关系由 task.dependencies 保证，保留请求级顺序
             # 便于调试观察。
@@ -601,6 +609,17 @@ if __name__ == "__main__":
         help="TPOT SLO threshold in seconds/token (inference workload only). "
              "Default 0.1s (=10 tok/s).")
     parser.add_argument(
+        "--trace-preset", type=str, default="uniform",
+        choices=["uniform", "lognormal"],
+        help="Prompt/output length distribution for inference workload. "
+             "'uniform' = uniform random over fixed ranges (default); "
+             "'lognormal' = Azure-LLM-trace-like long-tailed distribution.")
+    parser.add_argument(
+        "--arrival-rate", type=float, default=None,
+        help="Poisson arrival rate (req/s) for inference workload. "
+             "None = all requests arrive at t=0 (burst); "
+             "set to e.g. 5.0 for one request per 200ms on average.")
+    parser.add_argument(
         "--out", type=str, default="figs",
         help="Output directory for CSVs (default: figs). "
              "Use a labelled subdir like 'figs/m1_baseline' to keep runs separate.")
@@ -641,7 +660,10 @@ if __name__ == "__main__":
     if args.workload == "inference":
         workload_desc = (f"inference (LLM prefill/decode, "
                          f"~{total_tasks // 2} requests = {total_tasks} tasks)")
+        arrival_desc = (f"Poisson λ={args.arrival_rate} req/s"
+                        if args.arrival_rate else "burst (t=0)")
         aigc_line = ("  AIGC physics   : implicit (every task has model_id)\n"
+                     f"  Trace preset   : {args.trace_preset}, arrival = {arrival_desc}\n"
                      f"  SLO thresholds : TTFT≤{args.ttft_slo}s, "
                      f"TPOT≤{args.tpot_slo}s/tok")
     else:
@@ -689,6 +711,8 @@ if __name__ == "__main__":
         "ablation":    args.ablation,
         "ttft_slo":    args.ttft_slo if args.workload == "inference" else None,
         "tpot_slo":    args.tpot_slo if args.workload == "inference" else None,
+        "trace_preset": args.trace_preset if args.workload == "inference" else None,
+        "arrival_rate": args.arrival_rate if args.workload == "inference" else None,
         "quick":       args.quick,
         "schedulers":  ["RoundRobin", "HEFT", "GA", "PSO", "RL"],
         "cli_argv":    sys.argv,
@@ -703,7 +727,9 @@ if __name__ == "__main__":
                               workload=args.workload,
                               ablation=args.ablation,
                               ttft_slo=args.ttft_slo,
-                              tpot_slo=args.tpot_slo)
+                              tpot_slo=args.tpot_slo,
+                              trace_preset=args.trace_preset,
+                              arrival_rate=args.arrival_rate)
     raw, summary = tester.run_benchmark(
         edge_counts, total_tasks=total_tasks,
         checkpoint_interval=interval,

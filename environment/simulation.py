@@ -34,12 +34,18 @@ class Simulation:
                     if task in server.running_tasks:
                         server.running_tasks.remove(task)
 
-        # 2. 更新任务依赖状态
+        # 2. 更新任务依赖状态（M4 step2: 同时检查 arrival_time gate）
         for task in self.tasks.values():
-            if task.status == TaskStatus.WAITING and task.check_dependencies(self.completed_tasks):
-                task.status = TaskStatus.READY
-                if task.ready_time is None:
-                    task.ready_time = current_time
+            if task.status != TaskStatus.WAITING:
+                continue
+            if not task.check_dependencies(self.completed_tasks):
+                continue
+            # 请求到达时间未到 → 继续等待
+            if current_time < getattr(task, "arrival_time", 0.0):
+                continue
+            task.status = TaskStatus.READY
+            if task.ready_time is None:
+                task.ready_time = current_time
 
         # 3. 执行调度
         scheduler.schedule()

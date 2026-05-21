@@ -203,7 +203,8 @@ def test_throughput_speedup():
     # 第一个 batch=1（solo），后面递增到 batch=N
     # 真实模型里 batch 是 contemporaneous 的，所以最后一个的 duration 最具代表性
     final = decodes[-1]
-    solo_dur = decodes[0].workload / s.total_compute
+    # M4 step2 后 solo_exec 含 memory floor，需从实测时长读取
+    solo_dur = decodes[0].end_time - decodes[0].start_time
     expected_final = solo_dur * (1.0 + (N - 1) * DECODE_BATCH_OVERHEAD)
     assert_close(final.end_time - final.start_time, expected_final,
                  msg=f"batch={N} decode 时长")

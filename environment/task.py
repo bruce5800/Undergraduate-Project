@@ -32,8 +32,10 @@ class Task:
                  prompt_tokens: int = 0, # M2: PREFILL 的 prompt 长度
                  output_tokens: int = 0, # M2: DECODE 期望生成的 token 数
                  req_id: int = None,     # M2: 同一推理请求的 prefill/decode 共享此 ID
-                 kv_cache_GB: float = 0.0 # M2 step3: KV cache 显存占用，
+                 kv_cache_GB: float = 0.0,# M2 step3: KV cache 显存占用，
                                           # prefill 构建中 + decode 使用中均占用
+                 arrival_time: float = 0.0  # M4 step2: 请求到达时间；
+                                          # WAITING → READY 还要等到这个时刻
                 ):
         self.task_id = task_id
         self.compute_demand = compute_demand
@@ -49,6 +51,7 @@ class Task:
         self.output_tokens = output_tokens
         self.req_id = req_id
         self.kv_cache_GB = kv_cache_GB  # M2 step3: KV cache 占的显存（GB）
+        self.arrival_time = arrival_time  # M4 step2: 请求到达时间
 
         self.status = TaskStatus.WAITING
         self.ready_time = None      # 依赖满足、进入READY状态的时刻
@@ -274,24 +277,54 @@ class Task:
                                      rng: random.Random,
                                      model_ids: List[str] = None,
                                      prompt_range: tuple = (64, 1024),
-                                     output_range: tuple = (50, 500)
+                                     output_range: tuple = (50, 500),
+                                     dist: str = "uniform",
+                                     arrival_rate: float = None
                                      ) -> List['Task']:
         """批量生成 num_requests 个独立的 LLM 推理请求。
 
         每个请求是 (prefill → decode) 二节点子 DAG，请求之间相互独立。
-        prompt/output 长度近似真实推理服务（M4 会替换为 Azure/BurstGPT trace）。
+
+        参数：
+            dist            "uniform" (默认) | "lognormal"
+                            uniform: prompt/output 在 prompt_range/output_range 内均匀
+                            lognormal: 参考 Azure LLM trace 公开统计的对数正态
+                                       prompt μ=5.5 σ=1.0  (median ≈245 tokens)
+                                       output μ=4.5 σ=1.2  (median ≈90 tokens)
+            arrival_rate    None (默认，所有请求 t=0 同时到达)
+                            float (req/s)：按 Exp(λ) 采样累积到达时间
         """
         if model_ids is None:
             model_ids = [mid for mid, m in CATALOG.items() if m.family == "LLM"]
         if not model_ids:
             raise ValueError("No LLM model available in model_ids")
 
+        # 采样函数（按 dist 切换）
+        if dist == "lognormal":
+            # log-space 截断到合理范围
+            def _sample_prompt():
+                v = int(round(2.718281828 ** rng.gauss(5.5, 1.0)))
+                return max(16, min(v, 4096))
+
+            def _sample_output():
+                v = int(round(2.718281828 ** rng.gauss(4.5, 1.2)))
+                return max(10, min(v, 2000))
+        elif dist == "uniform":
+            def _sample_prompt():
+                return rng.randint(*prompt_range)
+
+            def _sample_output():
+                return rng.randint(*output_range)
+        else:
+            raise ValueError(f"Unknown dist: {dist} (expected 'uniform' or 'lognormal')")
+
         all_tasks = []
         next_id = task_id_offset
+        cumulative_arrival = 0.0
         for req_id in range(num_requests):
             model_id = rng.choice(model_ids)
-            prompt = rng.randint(*prompt_range)
-            output = rng.randint(*output_range)
+            prompt = _sample_prompt()
+            output = _sample_output()
             pair = Task.generate_inference_request(
                 req_id=req_id,
                 task_id_offset=next_id,
@@ -299,6 +332,14 @@ class Task:
                 prompt_tokens=prompt,
                 output_tokens=output,
             )
+
+            # M4 step2: Poisson 到达（如果指定了 rate）
+            if arrival_rate is not None and arrival_rate > 0:
+                cumulative_arrival += rng.expovariate(arrival_rate)
+                # 只设到 prefill 即可（decode 通过依赖等 prefill 完成）
+                pair[0].arrival_time = cumulative_arrival
+                pair[1].arrival_time = cumulative_arrival  # 保险起见同步
+
             all_tasks.extend(pair)
             next_id += len(pair)
         return all_tasks

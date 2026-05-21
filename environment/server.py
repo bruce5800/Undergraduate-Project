@@ -285,6 +285,17 @@ class Server:
                 # batch_size 包含自己：当前 running 中同 model 同 kind 的数量 + 1
                 # M3 step3: enable_batching=False 时退回 solo 行为（消融）
                 solo_exec = task.workload / self.total_compute
+                # M4 step2: 内存带宽下限（floor）。LLM decode 受 HBM 带宽限制，
+                # 即使算力无限大，单 token 也要 N 毫秒；prefill 类似但更轻。
+                if task.model_id in CATALOG:
+                    spec = CATALOG[task.model_id]
+                    if task.kind == TaskKind.DECODE and spec.decode_floor_sec_per_token > 0:
+                        floor = spec.decode_floor_sec_per_token * max(task.output_tokens, 1)
+                        solo_exec = max(solo_exec, floor)
+                    elif task.kind == TaskKind.PREFILL and spec.prefill_floor_sec_per_token > 0:
+                        floor = spec.prefill_floor_sec_per_token * max(task.prompt_tokens, 1)
+                        solo_exec = max(solo_exec, floor)
+
                 if self.enable_batching:
                     batch_size = self._current_batch_size(
                         task.model_id, task.kind) + 1
