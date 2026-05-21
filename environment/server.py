@@ -41,7 +41,8 @@ class Server:
                  memory: float,            # 显存容量 (GB) —— M1 后语义即 VRAM
                  storage: float,           # 存储容量 (GB)
                  bandwidth: float,         # 上行带宽 (Mbps)
-                 location: str = None      # 位置 (可选，针对边缘服务器)
+                 location: str = None,     # 位置 (可选，针对边缘服务器)
+                 enable_batching: bool = True  # M3 step3: 消融开关
                  ):
         self.server_id = server_id
         self.type = server_type
@@ -63,6 +64,9 @@ class Server:
         self.loaded_models: dict[str, float] = {}   # model_id -> last_use_time (LRU)
         self.model_refs: dict[str, int] = {}        # model_id -> 当前 running 任务计数 (>0 表示 pinned)
         self.weight_vram_used: float = 0.0          # 已加载权重显存总量
+
+        # ---- M3 step3: 消融开关 ----
+        self.enable_batching = enable_batching
 
     # ================================================================
     # AIGC: 模型驻留与冷加载辅助
@@ -189,7 +193,10 @@ class Server:
         """若 task 是 AIGC 阶段任务且其模型的 batch 已满，则拒绝接纳。
 
         Generic 任务永远不会被 batch 满阻塞。
+        M3 step3: enable_batching=False 时永远不阻塞（消融）。
         """
+        if not self.enable_batching:
+            return False
         if task.kind == TaskKind.GENERIC or task.model_id is None:
             return False
         if task.model_id not in CATALOG:
@@ -276,11 +283,16 @@ class Server:
 
                 # M3: 按当前同模同阶段的并发数计算 batched 执行时长
                 # batch_size 包含自己：当前 running 中同 model 同 kind 的数量 + 1
-                batch_size = self._current_batch_size(
-                    task.model_id, task.kind) + 1
-                overhead = self._batching_overhead(task.kind)
+                # M3 step3: enable_batching=False 时退回 solo 行为（消融）
                 solo_exec = task.workload / self.total_compute
-                effective_exec = solo_exec * (1.0 + (batch_size - 1) * overhead)
+                if self.enable_batching:
+                    batch_size = self._current_batch_size(
+                        task.model_id, task.kind) + 1
+                    overhead = self._batching_overhead(task.kind)
+                    effective_exec = solo_exec * (1.0 + (batch_size - 1) * overhead)
+                else:
+                    batch_size = 1
+                    effective_exec = solo_exec
                 task.batch_size_at_admit = batch_size
 
                 # 执行时间 = 传输延迟 + 冷加载延迟 + batched 计算时间

@@ -7,10 +7,12 @@ logger = logging.getLogger(__name__)
 
 
 class Simulation:
-    def __init__(self, num_servers=4):
+    def __init__(self, num_servers=4, enable_batching: bool = True):
         self.tasks = {}
         self.network = Network()
         self.completed_tasks = set()
+        # M3 step3: 消融时可关掉 batching 物理
+        self.enable_batching = enable_batching
         self.setup_servers(num_servers)
         self.setup_network()
 
@@ -51,7 +53,8 @@ class Simulation:
         # 云服务器：高算力GPU集群
         cloud = Server(0, ServerType.CLOUD,
                       compute_capacity=200, memory=128,
-                      storage=500, bandwidth=1000)
+                      storage=500, bandwidth=1000,
+                      enable_batching=self.enable_batching)
 
         # 边缘服务器：异构GPU节点（强/中/弱三档）
         #   (id, compute_TFLOPS, memory_GB, storage_GB, bandwidth_Mbps)
@@ -64,14 +67,15 @@ class Simulation:
             (6, 20, 32, 128, 300),    # 中
             (7, 10, 16,  64, 200)     # 弱
         ]
-        
+
         edge_servers = []
         for i, config in enumerate(edge_configs[:num_servers-1]):
             server_id, compute, memory, storage, bandwidth = config
             edge_servers.append(
-                Server(server_id, ServerType.EDGE, compute, memory, storage, bandwidth)
+                Server(server_id, ServerType.EDGE, compute, memory, storage, bandwidth,
+                       enable_batching=self.enable_batching)
             )
-        
+
         self.servers = {s.server_id: s for s in [cloud] + edge_servers}
 
     def setup_network(self):

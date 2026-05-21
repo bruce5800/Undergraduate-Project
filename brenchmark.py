@@ -51,7 +51,8 @@ class BenchmarkTester:
 
     def __init__(self, num_runs: int = 20, base_seed: int = 42,
                  aigc_mode: bool = False, aigc_zipf_alpha: float = 1.2,
-                 workload: str = "dag"):
+                 workload: str = "dag",
+                 ablation: str = "none"):
         self.num_runs = num_runs
         self.base_seed = base_seed
         # M1: AIGC 模式 —— 给任务按 Zipf 分配模型 ID，触发冷加载与权重驻留物理
@@ -59,6 +60,8 @@ class BenchmarkTester:
         self.aigc_zipf_alpha = aigc_zipf_alpha
         # M2: workload 类型 —— "dag" (通用三种 DAG) 或 "inference" (prefill/decode 推理请求)
         self.workload = workload
+        # M3 step3: 消融名称
+        self.ablation = ablation
 
         self.schedulers = {
             "RoundRobin": RoundRobinScheduler,
@@ -69,6 +72,30 @@ class BenchmarkTester:
         }
 
     # ----------------------------------------------------------------
+    #  Ablation 配置：哪个 ablation 关闭哪个开关
+    # ----------------------------------------------------------------
+    ABLATION_KWARGS = {
+        "none":               {},
+        # 物理层（Simulation/Server）
+        "no_batching":        {"sim": {"enable_batching": False}},
+        # RL scheduler 层
+        "no_warm_reward":     {"rl": {"enable_warm_reward": False}},
+        "no_batch_reward":    {"rl": {"enable_batch_reward": False}},
+        "no_affinity_reward": {"rl": {"enable_affinity_reward": False}},
+        "no_aigc_state":      {"rl": {"enable_aigc_state": False}},
+        "no_action_mask":     {"rl": {"enable_action_mask": False}},
+        "no_gae":             {"rl": {"enable_gae": False}},
+        "no_pretrain":        {"rl": {"enable_pretrain": False}},
+        "no_entropy":         {"rl": {"enable_entropy": False}},
+    }
+
+    def _sim_kwargs(self) -> dict:
+        return self.ABLATION_KWARGS.get(self.ablation, {}).get("sim", {})
+
+    def _rl_kwargs(self) -> dict:
+        return self.ABLATION_KWARGS.get(self.ablation, {}).get("rl", {})
+
+    # ----------------------------------------------------------------
     #  Environment setup
     # ----------------------------------------------------------------
 
@@ -77,7 +104,7 @@ class BenchmarkTester:
         random.seed(seed)
         np.random.seed(seed)
 
-        sim = Simulation(num_servers=num_edge_servers)
+        sim = Simulation(num_servers=num_edge_servers, **self._sim_kwargs())
 
         if self.workload == "inference":
             # M2: LLM 推理负载 —— task_count 个 task 单位 = task_count/2 个推理请求
@@ -131,7 +158,8 @@ class BenchmarkTester:
         sim = self.create_simulation(total_tasks, num_edge_servers, seed)
 
         if scheduler_class is RLScheduler:
-            scheduler = RLScheduler(sim, pretrain_episodes=5)
+            scheduler = RLScheduler(sim, pretrain_episodes=5,
+                                     **self._rl_kwargs())
         else:
             scheduler = scheduler_class(sim)
 
@@ -456,6 +484,13 @@ if __name__ == "__main__":
         "--aigc-alpha", type=float, default=1.2,
         help="Zipf alpha for model popularity (default 1.2)")
     parser.add_argument(
+        "--ablation", type=str, default="none",
+        choices=list(BenchmarkTester.ABLATION_KWARGS.keys()),
+        help="M3 step3 ablation: disable one component "
+             "(no_batching / no_warm_reward / no_batch_reward / "
+             "no_affinity_reward / no_aigc_state / no_action_mask / "
+             "no_gae / no_pretrain / no_entropy). 'none' = full model.")
+    parser.add_argument(
         "--out", type=str, default="figs",
         help="Output directory for CSVs (default: figs). "
              "Use a labelled subdir like 'figs/m1_baseline' to keep runs separate.")
@@ -514,6 +549,7 @@ if __name__ == "__main__":
           f"({n_checkpoints} data points / run)")
     print(f"  Schedulers     : RoundRobin, HEFT, GA, PSO, RL")
     print(aigc_line)
+    print(f"  Ablation       : {args.ablation}")
     print(f"  Output dir     : {output_dir}")
     print(f"  Total sim runs : {total}")
     print("=" * 70)
@@ -538,6 +574,7 @@ if __name__ == "__main__":
         "aigc":        args.aigc and args.workload == "dag",
         "aigc_alpha":  (args.aigc_alpha
                         if args.aigc and args.workload == "dag" else None),
+        "ablation":    args.ablation,
         "quick":       args.quick,
         "schedulers":  ["RoundRobin", "HEFT", "GA", "PSO", "RL"],
         "cli_argv":    sys.argv,
@@ -549,7 +586,8 @@ if __name__ == "__main__":
     tester = BenchmarkTester(num_runs=num_runs,
                               aigc_mode=args.aigc,
                               aigc_zipf_alpha=args.aigc_alpha,
-                              workload=args.workload)
+                              workload=args.workload,
+                              ablation=args.ablation)
     raw, summary = tester.run_benchmark(
         edge_counts, total_tasks=total_tasks,
         checkpoint_interval=interval,

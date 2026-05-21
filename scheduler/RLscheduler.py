@@ -41,7 +41,7 @@ class StateEncoder:
     _MODEL_IDS = sorted(CATALOG.keys())
     _MODEL_INDEX = {mid: i for i, mid in enumerate(_MODEL_IDS)}
 
-    def __init__(self, sim_env):
+    def __init__(self, sim_env, enable_aigc_state: bool = True):
         self.sim = sim_env
         self.server_ids = sorted(sim_env.servers.keys())
         self._cloud_id = next(
@@ -50,6 +50,8 @@ class StateEncoder:
             self.server_ids[0]
         )
         self._successor_count: dict = {}
+        # M3 step3: enable_aigc_state=False 时回退到 M0 的 8 + 5*ns 维状态
+        self.enable_aigc_state = enable_aigc_state
 
     # ----------------------------------------------------------------
     #  特征编码主入口
@@ -68,16 +70,18 @@ class StateEncoder:
         features.append(self._get_successor_count(task) / 5.0)
 
         # ---- M3: AIGC 任务特征 (4 + |M| 维) ----
+        # M3 step3: enable_aigc_state=False 时整个 AIGC 任务块被跳过
         kind = getattr(task, "kind", TaskKind.GENERIC)
-        features.append(1.0 if kind == TaskKind.GENERIC else 0.0)
-        features.append(1.0 if kind == TaskKind.PREFILL else 0.0)
-        features.append(1.0 if kind == TaskKind.DECODE else 0.0)
-        features.append(getattr(task, "kv_cache_GB", 0.0) / 5.0)
-        # model one-hot
-        model_onehot = [0.0] * len(self._MODEL_IDS)
-        if task.model_id in self._MODEL_INDEX:
-            model_onehot[self._MODEL_INDEX[task.model_id]] = 1.0
-        features.extend(model_onehot)
+        if self.enable_aigc_state:
+            features.append(1.0 if kind == TaskKind.GENERIC else 0.0)
+            features.append(1.0 if kind == TaskKind.PREFILL else 0.0)
+            features.append(1.0 if kind == TaskKind.DECODE else 0.0)
+            features.append(getattr(task, "kv_cache_GB", 0.0) / 5.0)
+            # model one-hot
+            model_onehot = [0.0] * len(self._MODEL_IDS)
+            if task.model_id in self._MODEL_INDEX:
+                model_onehot[self._MODEL_INDEX[task.model_id]] = 1.0
+            features.extend(model_onehot)
 
         # ============= 全局状态 (2 维) =============
         features.append(ready_task_count / 50.0)
@@ -101,31 +105,36 @@ class StateEncoder:
             features.append(transfer / 10.0)
 
             # ---- M3: AIGC 服务器特征 5 维 ----
-            # 1) is_my_model_loaded：当前模型是否在该服务器（避免冷加载）
-            is_loaded = (task.model_id is not None
-                         and task.model_id in server.loaded_models)
-            features.append(1.0 if is_loaded else 0.0)
-            # 2) batch_count：同模同阶段并发数（归一化到 max_batch_size）
-            batch_count = server._current_batch_size(task.model_id, kind)
-            max_b = (CATALOG[task.model_id].max_batch_size
-                     if task.model_id in CATALOG else 1)
-            features.append(batch_count / max(max_b, 1))
-            # 3) vram_free / total
-            vram_free = (server.total_memory
-                         - server.used_memory
-                         - server.weight_vram_used)
-            features.append(max(vram_free, 0.0) / max(server.total_memory, 1e-6))
-            # 4) cold_load_cost：归一化到 30s
-            cold = server.cold_load_cost(task.model_id) \
-                if task.model_id is not None else 0.0
-            features.append(cold / 30.0)
-            # 5) is_sibling_server：本服务器是否是同请求 prefill 所在地
-            features.append(1.0 if sid == sibling_server_id else 0.0)
+            # M3 step3: enable_aigc_state=False 时整个服务器 AIGC 块被跳过
+            if self.enable_aigc_state:
+                # 1) is_my_model_loaded：当前模型是否在该服务器（避免冷加载）
+                is_loaded = (task.model_id is not None
+                             and task.model_id in server.loaded_models)
+                features.append(1.0 if is_loaded else 0.0)
+                # 2) batch_count：同模同阶段并发数（归一化到 max_batch_size）
+                batch_count = server._current_batch_size(task.model_id, kind)
+                max_b = (CATALOG[task.model_id].max_batch_size
+                         if task.model_id in CATALOG else 1)
+                features.append(batch_count / max(max_b, 1))
+                # 3) vram_free / total
+                vram_free = (server.total_memory
+                             - server.used_memory
+                             - server.weight_vram_used)
+                features.append(max(vram_free, 0.0) / max(server.total_memory, 1e-6))
+                # 4) cold_load_cost：归一化到 30s
+                cold = server.cold_load_cost(task.model_id) \
+                    if task.model_id is not None else 0.0
+                features.append(cold / 30.0)
+                # 5) is_sibling_server：本服务器是否是同请求 prefill 所在地
+                features.append(1.0 if sid == sibling_server_id else 0.0)
 
         return torch.FloatTensor(features)
 
     @property
     def state_dim(self) -> int:
+        # M3 step3: 消融关掉 AIGC state 时，回到 M0 维度
+        if not self.enable_aigc_state:
+            return 8 + 5 * len(self.server_ids)
         # 任务 (10+|M|) + 全局 (2) + 每台服务器 10
         return (10 + len(self._MODEL_IDS) + 2
                 + 10 * len(self.server_ids))
@@ -202,11 +211,31 @@ class ActorCritic(nn.Module):
 
 class RLScheduler(BaseScheduler):
 
-    def __init__(self, sim_env, pretrain_episodes: int = 10):
+    def __init__(self, sim_env, pretrain_episodes: int = 10,
+                 # ---- M3 step3: 7 个消融开关 ----
+                 enable_warm_reward: bool = True,
+                 enable_batch_reward: bool = True,
+                 enable_affinity_reward: bool = True,
+                 enable_aigc_state: bool = True,
+                 enable_action_mask: bool = True,
+                 enable_gae: bool = True,
+                 enable_pretrain: bool = True,
+                 enable_entropy: bool = True):
         super().__init__(sim_env)
 
+        # 保存消融开关
+        self.enable_warm_reward = enable_warm_reward
+        self.enable_batch_reward = enable_batch_reward
+        self.enable_affinity_reward = enable_affinity_reward
+        self.enable_aigc_state = enable_aigc_state
+        self.enable_action_mask = enable_action_mask
+        self.enable_gae = enable_gae
+        self.enable_pretrain = enable_pretrain
+        self.enable_entropy = enable_entropy
+
         self.server_ids = sorted(sim_env.servers.keys())
-        self.state_encoder = StateEncoder(sim_env)
+        self.state_encoder = StateEncoder(sim_env,
+                                          enable_aigc_state=enable_aigc_state)
 
         state_dim = self.state_encoder.state_dim
         action_dim = len(self.server_ids)
@@ -218,7 +247,8 @@ class RLScheduler(BaseScheduler):
         self.gamma = 0.95
         self.gae_lambda = 0.90
         self.clip_epsilon = 0.2
-        self.entropy_coeff = 0.05
+        # M3 step3: enable_entropy=False 时熵正则化系数归零
+        self.entropy_coeff = 0.05 if enable_entropy else 0.0
         self.value_coeff = 0.5
         self.max_grad_norm = 0.5
 
@@ -238,8 +268,8 @@ class RLScheduler(BaseScheduler):
             self.server_ids[0]
         )
 
-        # ---- 多轮预训练 ----
-        if pretrain_episodes > 0 and len(sim_env.tasks) > 0:
+        # ---- 多轮预训练（M3 step3 可关）----
+        if enable_pretrain and pretrain_episodes > 0 and len(sim_env.tasks) > 0:
             self._pretrain(pretrain_episodes)
 
     # =============================================================
@@ -338,8 +368,9 @@ class RLScheduler(BaseScheduler):
             return None, None, None, None
 
         with torch.no_grad():
-            probs, value, _ = self.policy(
-                state.unsqueeze(0), action_mask.unsqueeze(0))
+            # M3 step3: 消融时不向 policy 提供掩码 —— 让网络通过 reward 学习避开非法动作
+            mask_arg = action_mask.unsqueeze(0) if self.enable_action_mask else None
+            probs, value, _ = self.policy(state.unsqueeze(0), mask_arg)
             probs = probs.squeeze(0)
             value = value.squeeze(0)
 
@@ -379,9 +410,11 @@ class RLScheduler(BaseScheduler):
         # 3) 资源匹配度
         match_reward = min(task.compute_demand / max(server.total_compute, 1e-6), 1.0)
 
-        # ---- M3: AIGC 奖励 ----
+        # ---- M3: AIGC 奖励（各自可关掉做消融）----
         # 4) Warm bonus: 模型已加载 → +1；否则按冷加载秒数衰减到 [-1, 0]
-        if task.model_id is None or task.model_id not in CATALOG:
+        if not self.enable_warm_reward:
+            warm_bonus = 0.0
+        elif task.model_id is None or task.model_id not in CATALOG:
             warm_bonus = 0.0
         elif task.model_id in server.loaded_models:
             warm_bonus = 1.0
@@ -391,7 +424,9 @@ class RLScheduler(BaseScheduler):
 
         # 5) Batch bonus: 加入已存在的同模同阶段 batch（不含自己）
         kind = getattr(task, "kind", TaskKind.GENERIC)
-        if kind in (TaskKind.PREFILL, TaskKind.DECODE) and task.model_id in CATALOG:
+        if not self.enable_batch_reward:
+            batch_bonus = 0.0
+        elif kind in (TaskKind.PREFILL, TaskKind.DECODE) and task.model_id in CATALOG:
             existing_batch = server._current_batch_size(task.model_id, kind)
             max_b = CATALOG[task.model_id].max_batch_size
             if existing_batch == 0:
@@ -407,7 +442,7 @@ class RLScheduler(BaseScheduler):
 
         # 6) Affinity bonus: DECODE 落在 prefill 服务器
         affinity_bonus = 0.0
-        if kind == TaskKind.DECODE:
+        if self.enable_affinity_reward and kind == TaskKind.DECODE:
             for dep_id in task.dependencies:
                 dep = self.sim.tasks.get(dep_id)
                 if dep is not None and dep.assigned_server == server.server_id:
@@ -447,16 +482,24 @@ class RLScheduler(BaseScheduler):
         values = torch.cat(values).detach()
         dones = torch.FloatTensor(dones)
 
-        # GAE
-        advantages = torch.zeros_like(rewards)
-        gae = 0.0
-        for t in reversed(range(len(rewards))):
-            next_val = 0.0 if t == len(rewards) - 1 else values[t + 1].item()
-            delta = rewards[t] + self.gamma * next_val * (1 - dones[t]) - values[t].item()
-            gae = delta + self.gamma * self.gae_lambda * (1 - dones[t]) * gae
-            advantages[t] = gae
-
-        returns = advantages + values
+        # M3 step3: GAE 可关 —— 消融时用蒙特卡洛 return + value baseline
+        if self.enable_gae:
+            advantages = torch.zeros_like(rewards)
+            gae = 0.0
+            for t in reversed(range(len(rewards))):
+                next_val = 0.0 if t == len(rewards) - 1 else values[t + 1].item()
+                delta = rewards[t] + self.gamma * next_val * (1 - dones[t]) - values[t].item()
+                gae = delta + self.gamma * self.gae_lambda * (1 - dones[t]) * gae
+                advantages[t] = gae
+            returns = advantages + values
+        else:
+            # 蒙特卡洛 returns（无 lambda 平滑）
+            returns = torch.zeros_like(rewards)
+            running = 0.0
+            for t in reversed(range(len(rewards))):
+                running = rewards[t] + self.gamma * running * (1 - dones[t].item())
+                returns[t] = running
+            advantages = returns - values
 
         if advantages.std() > 1e-8:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -511,6 +554,15 @@ class RLScheduler(BaseScheduler):
                 continue
 
             target_server = self.sim.servers[server_id]
+
+            # M3 step3: 关掉 action_mask 后，policy 可能选到非法服务器
+            # —— 给强负奖励，让 PPO 学会规避；不入队，下轮再调度此 task
+            if not target_server.can_allocate(task):
+                self.store_transition(state, action_idx, reward=-1.0,
+                                       log_prob=log_prob, value=value,
+                                       done=False)
+                self._decision_count += 1
+                continue
 
             src = task.assigned_server if task.assigned_server is not None \
                 else self._cloud_id
