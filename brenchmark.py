@@ -39,8 +39,25 @@ from scheduler.Heftscheduler import HEFTScheduler
 from scheduler.PSOscheduler import PSOScheduler
 from scheduler.RRscheduler import RoundRobinScheduler
 from environment.simulation import Simulation
-from environment.task import Task, TaskStatus
+from environment.task import Task, TaskStatus, TaskKind
 from environment.model_catalog import assign_models_zipf
+
+
+# ====================================================================
+#  指标定义
+# ====================================================================
+# 两类 workload 共用的基础指标
+COMMON_METRICS = ["makespan", "avg_e2e_latency",
+                  "avg_utilization", "load_balance_std"]
+
+# inference workload 额外追加的 AIGC 标准指标
+AIGC_METRICS = [
+    "ttft_p50", "ttft_p95", "ttft_p99",
+    "tpot_p50", "tpot_p95",
+    "goodput_tps",
+    "slo_attainment",
+    "req_e2e_p50", "req_e2e_p95",
+]
 
 
 # ====================================================================
@@ -52,7 +69,9 @@ class BenchmarkTester:
     def __init__(self, num_runs: int = 20, base_seed: int = 42,
                  aigc_mode: bool = False, aigc_zipf_alpha: float = 1.2,
                  workload: str = "dag",
-                 ablation: str = "none"):
+                 ablation: str = "none",
+                 ttft_slo: float = 2.0,
+                 tpot_slo: float = 0.1):
         self.num_runs = num_runs
         self.base_seed = base_seed
         # M1: AIGC 模式 —— 给任务按 Zipf 分配模型 ID，触发冷加载与权重驻留物理
@@ -62,6 +81,9 @@ class BenchmarkTester:
         self.workload = workload
         # M3 step3: 消融名称
         self.ablation = ablation
+        # M4 step1: AIGC SLO 阈值 —— 用于 slo_attainment 指标
+        self.ttft_slo = ttft_slo
+        self.tpot_slo = tpot_slo
 
         self.schedulers = {
             "RoundRobin": RoundRobinScheduler,
@@ -94,6 +116,12 @@ class BenchmarkTester:
 
     def _rl_kwargs(self) -> dict:
         return self.ABLATION_KWARGS.get(self.ablation, {}).get("rl", {})
+
+    def _metrics_list(self) -> list:
+        """该 workload 下需要汇总/做显著性检验的指标列。"""
+        if self.workload == "inference":
+            return COMMON_METRICS + AIGC_METRICS
+        return list(COMMON_METRICS)
 
     # ----------------------------------------------------------------
     #  Environment setup
@@ -236,12 +264,87 @@ class BenchmarkTester:
         # 4) Completion ratio
         completed_ratio = len(sim.completed_tasks) / max(len(sim.tasks), 1)
 
-        return {
+        out = {
             "makespan":         makespan,
             "avg_e2e_latency":  round(avg_e2e, 4),
             "avg_utilization":  round(avg_util, 4),
             "load_balance_std": round(load_std, 4),
             "completed_ratio":  round(completed_ratio, 4),
+        }
+
+        # M4 step1: inference workload 追加 AIGC 标准指标
+        if self.workload == "inference":
+            out.update(self._collect_aigc_request_metrics(sim, current_time))
+
+        return out
+
+    # ----------------------------------------------------------------
+    #  AIGC 请求级指标（M4 step1）
+    # ----------------------------------------------------------------
+
+    def _collect_aigc_request_metrics(self, sim: Simulation,
+                                       current_time: float) -> dict:
+        """按 req_id 聚合 prefill/decode 计算 LLM 推理标准指标。
+
+        TTFT  : prefill.end_time - prefill.ready_time
+        TPOT  : (decode.end_time - decode.start_time) / output_tokens
+        E2E   : decode.end_time - prefill.ready_time
+        Good- : Σ output_tokens / current_time
+        SLO   : 同时满足 TTFT <= slo_ttft AND TPOT <= slo_tpot 的请求占比
+        """
+        # 按 req_id 聚合 completed 的 prefill / decode
+        prefills_by_req = {}
+        decodes_by_req = {}
+        total_output_tokens = 0
+
+        for tid in sim.completed_tasks:
+            t = sim.tasks.get(tid)
+            if t is None or t.req_id is None:
+                continue
+            if t.kind == TaskKind.PREFILL:
+                prefills_by_req[t.req_id] = t
+            elif t.kind == TaskKind.DECODE:
+                decodes_by_req[t.req_id] = t
+                total_output_tokens += getattr(t, "output_tokens", 0)
+
+        # 只统计 prefill+decode 都完成的请求
+        full_reqs = set(prefills_by_req.keys()) & set(decodes_by_req.keys())
+
+        ttfts, tpots, e2es = [], [], []
+        slo_hits = 0
+        for rid in full_reqs:
+            p = prefills_by_req[rid]
+            d = decodes_by_req[rid]
+            if p.ready_time is None or p.end_time is None:
+                continue
+            if d.start_time is None or d.end_time is None:
+                continue
+
+            ttft = p.end_time - p.ready_time
+            e2e = d.end_time - p.ready_time
+            out_tok = max(getattr(d, "output_tokens", 0), 1)
+            tpot = (d.end_time - d.start_time) / out_tok
+
+            ttfts.append(ttft)
+            tpots.append(tpot)
+            e2es.append(e2e)
+            if ttft <= self.ttft_slo and tpot <= self.tpot_slo:
+                slo_hits += 1
+
+        def _p(arr, q):
+            return float(np.percentile(arr, q)) if arr else 0.0
+
+        n = len(full_reqs)
+        return {
+            "ttft_p50":      round(_p(ttfts, 50), 4),
+            "ttft_p95":      round(_p(ttfts, 95), 4),
+            "ttft_p99":      round(_p(ttfts, 99), 4),
+            "tpot_p50":      round(_p(tpots, 50), 4),
+            "tpot_p95":      round(_p(tpots, 95), 4),
+            "req_e2e_p50":   round(_p(e2es, 50), 4),
+            "req_e2e_p95":   round(_p(e2es, 95), 4),
+            "goodput_tps":   round(total_output_tokens / max(current_time, 1e-6), 2),
+            "slo_attainment": round(slo_hits / max(n, 1), 4),
         }
 
     # ================================================================
@@ -335,8 +438,8 @@ class BenchmarkTester:
         import pandas as pd
         df = pd.DataFrame(raw_results)
 
-        metrics = ["makespan", "avg_e2e_latency",
-                    "avg_utilization", "load_balance_std"]
+        # M4 step1: 指标列表随 workload 扩展
+        metrics = self._metrics_list()
         summary = []
 
         groups = df.groupby(["edge_servers", "completed_tasks", "scheduler"])
@@ -376,8 +479,8 @@ class BenchmarkTester:
         import pandas as pd
         df = pd.DataFrame(raw_results)
 
-        metrics = ["makespan", "avg_e2e_latency",
-                    "avg_utilization", "load_balance_std"]
+        # M4 step1: 指标列表随 workload 扩展
+        metrics = self._metrics_list()
         scheds = sorted(df["scheduler"].unique())
         results = []
 
@@ -491,6 +594,13 @@ if __name__ == "__main__":
              "no_affinity_reward / no_aigc_state / no_action_mask / "
              "no_gae / no_pretrain / no_entropy). 'none' = full model.")
     parser.add_argument(
+        "--ttft-slo", type=float, default=2.0,
+        help="TTFT SLO threshold in seconds (inference workload only). Default 2.0s.")
+    parser.add_argument(
+        "--tpot-slo", type=float, default=0.1,
+        help="TPOT SLO threshold in seconds/token (inference workload only). "
+             "Default 0.1s (=10 tok/s).")
+    parser.add_argument(
         "--out", type=str, default="figs",
         help="Output directory for CSVs (default: figs). "
              "Use a labelled subdir like 'figs/m1_baseline' to keep runs separate.")
@@ -531,7 +641,9 @@ if __name__ == "__main__":
     if args.workload == "inference":
         workload_desc = (f"inference (LLM prefill/decode, "
                          f"~{total_tasks // 2} requests = {total_tasks} tasks)")
-        aigc_line = "  AIGC physics   : implicit (every task has model_id)"
+        aigc_line = ("  AIGC physics   : implicit (every task has model_id)\n"
+                     f"  SLO thresholds : TTFT≤{args.ttft_slo}s, "
+                     f"TPOT≤{args.tpot_slo}s/tok")
     else:
         workload_desc = "dag (3 generic patterns)"
         aigc_line = (f"  AIGC mode      : {args.aigc} "
@@ -575,6 +687,8 @@ if __name__ == "__main__":
         "aigc_alpha":  (args.aigc_alpha
                         if args.aigc and args.workload == "dag" else None),
         "ablation":    args.ablation,
+        "ttft_slo":    args.ttft_slo if args.workload == "inference" else None,
+        "tpot_slo":    args.tpot_slo if args.workload == "inference" else None,
         "quick":       args.quick,
         "schedulers":  ["RoundRobin", "HEFT", "GA", "PSO", "RL"],
         "cli_argv":    sys.argv,
@@ -587,7 +701,9 @@ if __name__ == "__main__":
                               aigc_mode=args.aigc,
                               aigc_zipf_alpha=args.aigc_alpha,
                               workload=args.workload,
-                              ablation=args.ablation)
+                              ablation=args.ablation,
+                              ttft_slo=args.ttft_slo,
+                              tpot_slo=args.tpot_slo)
     raw, summary = tester.run_benchmark(
         edge_counts, total_tasks=total_tasks,
         checkpoint_interval=interval,
