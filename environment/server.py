@@ -142,8 +142,19 @@ class Server:
     # 资源分配（向后兼容：model_id is None 时走原逻辑）
     # ================================================================
 
+    @staticmethod
+    def _activation_footprint(task: Task) -> float:
+        """任务运行时占用的非权重显存 = 激活值 + KV cache。
+
+        - 通用任务: kv_cache_GB=0，等价于原来的 input_size
+        - PREFILL/DECODE: input_size (激活) + kv_cache_GB (KV cache)
+        """
+        return task.input_size + getattr(task, "kv_cache_GB", 0.0)
+
     def can_allocate(self, task: Task) -> bool:
         """检查是否满足资源需求。"""
+        footprint = self._activation_footprint(task)
+
         # 计算与存储约束保持不变
         compute_ok = (self.used_compute + task.compute_demand
                       <= self.total_compute)
@@ -154,12 +165,12 @@ class Server:
 
         # 显存：分通用任务 vs AIGC 任务两种语义
         if task.model_id is None or task.model_id not in CATALOG:
-            # 原逻辑：input_size 直接加到 used_memory 校验
-            return self.used_memory + task.input_size <= self.total_memory
+            # 原逻辑：占用直接加到 used_memory 校验
+            return self.used_memory + footprint <= self.total_memory
 
         # AIGC 任务：考虑权重驻留 + 可驱逐空间
         return self._can_fit_model(CATALOG[task.model_id],
-                                   extra_activation_GB=task.input_size)
+                                   extra_activation_GB=footprint)
 
     def add_task(self, task: Task, priority: float):
         """添加任务到等待队列，标记为 QUEUED 防止重复调度"""
@@ -168,16 +179,17 @@ class Server:
 
     def update_resource(self, task: Task, allocate: bool):
         """更新资源分配。AIGC 任务还要维护模型引用计数。"""
+        footprint = self._activation_footprint(task)
         if allocate:
             self.used_compute += task.compute_demand
-            self.used_memory += task.input_size
+            self.used_memory += footprint
             self.used_storage += task.output_size
             if task.model_id is not None and task.model_id in CATALOG:
                 self.model_refs[task.model_id] = (
                     self.model_refs.get(task.model_id, 0) + 1)
         else:
             self.used_compute -= task.compute_demand
-            self.used_memory -= task.input_size
+            self.used_memory -= footprint
             self.used_storage -= task.output_size
             if task.model_id is not None and task.model_id in CATALOG:
                 refs = self.model_refs.get(task.model_id, 0) - 1

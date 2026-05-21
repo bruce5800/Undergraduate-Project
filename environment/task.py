@@ -31,7 +31,9 @@ class Task:
                  kind: 'TaskKind' = None,# M2: 任务类型；None 默认为 GENERIC
                  prompt_tokens: int = 0, # M2: PREFILL 的 prompt 长度
                  output_tokens: int = 0, # M2: DECODE 期望生成的 token 数
-                 req_id: int = None      # M2: 同一推理请求的 prefill/decode 共享此 ID
+                 req_id: int = None,     # M2: 同一推理请求的 prefill/decode 共享此 ID
+                 kv_cache_GB: float = 0.0 # M2 step3: KV cache 显存占用，
+                                          # prefill 构建中 + decode 使用中均占用
                 ):
         self.task_id = task_id
         self.compute_demand = compute_demand
@@ -46,6 +48,7 @@ class Task:
         self.prompt_tokens = prompt_tokens
         self.output_tokens = output_tokens
         self.req_id = req_id
+        self.kv_cache_GB = kv_cache_GB  # M2 step3: KV cache 占的显存（GB）
 
         self.status = TaskStatus.WAITING
         self.ready_time = None      # 依赖满足、进入READY状态的时刻
@@ -246,6 +249,7 @@ class Task:
             kind=TaskKind.PREFILL,
             prompt_tokens=prompt_tokens,
             req_id=req_id,
+            kv_cache_GB=kv_cache_GB,         # M2 step3: 构建期间占显存
         )
 
         decode = Task(
@@ -259,6 +263,7 @@ class Task:
             kind=TaskKind.DECODE,
             output_tokens=output_tokens,
             req_id=req_id,
+            kv_cache_GB=kv_cache_GB,         # M2 step3: decode 期间持续使用
         )
 
         return [prefill, decode]

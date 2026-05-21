@@ -18,6 +18,7 @@ import sys
 
 from environment.task import Task, TaskKind, TaskStatus
 from environment.model_catalog import CATALOG
+from environment.server import Server, ServerType
 
 
 def assert_close(a, b, tol=1e-6, msg=""):
@@ -198,6 +199,103 @@ def test_batch_workload_generator():
 
 
 # ====================================================================
+# T8/T9/T10/T11: M2 step 3 —— KV cache 真正进显存
+# ====================================================================
+
+def test_kv_cache_set_on_both_phases():
+    """工厂应同时给 prefill 和 decode 设置 kv_cache_GB。"""
+    spec = CATALOG["llama-13b"]
+    prompt = 2048
+    pair = Task.generate_inference_request(0, 0, "llama-13b", prompt, 100)
+    prefill, decode = pair
+    expected = prompt * spec.kv_cache_MB_per_token / 1024.0
+    assert_close(prefill.kv_cache_GB, expected, msg="prefill.kv_cache_GB")
+    assert_close(decode.kv_cache_GB, expected,
+                 msg="decode 必须继承同样大小的 KV cache")
+    assert_close(prefill.kv_cache_GB, decode.kv_cache_GB,
+                 msg="prefill / decode 共享 KV cache 大小")
+    print(f"  [PASS] T8 KV cache set on both phases "
+          f"(llama-13b @ 2048 tok = {expected:.2f} GB)")
+
+
+def test_kv_cache_consumes_vram_during_execution():
+    """Prefill 启动后，server.used_memory 应包含 KV cache。"""
+    s = Server(server_id=1, server_type=ServerType.EDGE,
+               compute_capacity=50.0, memory=60.0,
+               storage=256.0, bandwidth=500.0)
+    pair = Task.generate_inference_request(0, 0, "llama-7b",
+                                            prompt_tokens=1024,
+                                            output_tokens=100)
+    prefill, decode = pair
+    expected_kv = prefill.kv_cache_GB
+    expected_footprint = prefill.input_size + expected_kv
+
+    s.add_task(prefill, priority=1.0)
+    s.process_tasks(current_time=0.0)
+
+    assert prefill.status == TaskStatus.RUNNING
+    assert_close(s.used_memory, expected_footprint,
+                 msg="used_memory = input_size + kv_cache_GB during prefill")
+    print(f"  [PASS] T9 KV cache occupies VRAM during execution "
+          f"(footprint={expected_footprint:.2f} GB)")
+
+
+def test_kv_cache_released_after_decode():
+    """Decode 完成后，used_memory 应回到 0（KV cache 释放）。"""
+    s = Server(server_id=1, server_type=ServerType.EDGE,
+               compute_capacity=50.0, memory=60.0,
+               storage=256.0, bandwidth=500.0)
+    pair = Task.generate_inference_request(0, 0, "llama-7b", 512, 80)
+    prefill, decode = pair
+
+    # 先跑 prefill 并释放
+    s.add_task(prefill, priority=1.0)
+    s.process_tasks(0.0)
+    s.update_resource(prefill, allocate=False)  # 模拟完成
+    s.running_tasks.remove(prefill)
+    assert_close(s.used_memory, 0.0,
+                 msg="prefill 完成后 used_memory 归零")
+
+    # 再跑 decode
+    s.add_task(decode, priority=1.0)
+    s.process_tasks(10.0)
+    expected_decode_footprint = decode.input_size + decode.kv_cache_GB
+    assert_close(s.used_memory, expected_decode_footprint,
+                 msg="decode running 期间持续占 KV cache")
+
+    # decode 完成后释放
+    s.update_resource(decode, allocate=False)
+    s.running_tasks.remove(decode)
+    assert_close(s.used_memory, 0.0,
+                 msg="decode 完成后 KV cache 释放")
+    print("  [PASS] T10 KV cache released after decode")
+
+
+def test_long_prompt_does_not_fit_small_edge():
+    """边缘服务器 16GB 装不下 llama-13b（26GB 权重）的长 prompt 请求。
+
+    这是 AIGC 物理的核心：长 context 任务必须上更大的服务器。
+    """
+    s_small = Server(server_id=3, server_type=ServerType.EDGE,
+                     compute_capacity=10.0, memory=16.0,
+                     storage=64.0, bandwidth=200.0)
+    s_large = Server(server_id=0, server_type=ServerType.CLOUD,
+                     compute_capacity=200.0, memory=128.0,
+                     storage=500.0, bandwidth=1000.0)
+
+    # llama-13b 权重 26 GB 已经超过小边的 16 GB
+    pair = Task.generate_inference_request(0, 0, "llama-13b",
+                                            prompt_tokens=2048,
+                                            output_tokens=100)
+    prefill = pair[0]
+    assert not s_small.can_allocate(prefill), \
+        "16GB 边缘不应容纳 llama-13b 权重"
+    assert s_large.can_allocate(prefill), \
+        "128GB 云服务器应该能容纳"
+    print("  [PASS] T11 long-context routes to capable server only")
+
+
+# ====================================================================
 # main
 # ====================================================================
 
@@ -210,6 +308,10 @@ if __name__ == "__main__":
         test_dependency_and_req_id,
         test_input_validation,
         test_batch_workload_generator,
+        test_kv_cache_set_on_both_phases,
+        test_kv_cache_consumes_vram_during_execution,
+        test_kv_cache_released_after_decode,
+        test_long_prompt_does_not_fit_small_edge,
     ]
     failed = 0
     for t in tests:
