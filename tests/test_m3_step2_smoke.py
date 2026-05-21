@@ -14,7 +14,12 @@ test_m3_step2_smoke.py — M3 step 2: AIGC-aware RL scheduler
 直接 python test_m3_step2_smoke.py 运行。
 """
 
+import os
 import sys
+
+# 让从子目录运行也能找到 environment / scheduler 包
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import torch
 
 from environment.simulation import Simulation

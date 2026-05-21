@@ -16,7 +16,11 @@ test_m3_step3_smoke.py — M3 step 3: Ablation switches
 直接 python test_m3_step3_smoke.py 运行。
 """
 
+import os
 import sys
+
+# 让从子目录运行也能找到 environment / scheduler 包
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from environment.simulation import Simulation
 from environment.server import Server, ServerType

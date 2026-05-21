@@ -9,7 +9,13 @@ aigc_demo.py — M1 阶段 AIGC 物理展示
 每次任务路由都可能触发冷加载。这正是 M2/M3 调度器要解决的问题。
 """
 
+import os
 import random
+import sys
+
+# 让从子目录运行也能找到 environment / scheduler 包
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
 import logging
 

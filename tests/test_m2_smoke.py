@@ -13,8 +13,12 @@ test_m2_smoke.py — M2 第一步：Task 拆 prefill/decode 两阶段
 直接 python test_m2_smoke.py 运行。
 """
 
+import os
 import random
 import sys
+
+# 让从子目录运行也能找到 environment / scheduler 包
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from environment.task import Task, TaskKind, TaskStatus
 from environment.model_catalog import CATALOG

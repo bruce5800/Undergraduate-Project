@@ -10,7 +10,11 @@ test_m1_smoke.py — M1 阶段烟雾测试
 直接 python test_m1_smoke.py 运行，全部通过返回 0。
 """
 
+import os
 import sys
+
+# 让从子目录运行也能找到 environment / scheduler 包
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from environment.server import Server, ServerType
 from environment.task import Task, TaskStatus
