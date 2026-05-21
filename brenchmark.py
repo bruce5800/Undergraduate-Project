@@ -38,6 +38,8 @@ from scheduler.GAscheduler import GAScheduler
 from scheduler.Heftscheduler import HEFTScheduler
 from scheduler.PSOscheduler import PSOScheduler
 from scheduler.RRscheduler import RoundRobinScheduler
+from scheduler.LeastLoadedScheduler import LeastLoadedScheduler
+from scheduler.ShortestQueueScheduler import ShortestQueueScheduler
 from environment.simulation import Simulation
 from environment.task import Task, TaskStatus, TaskKind
 from environment.model_catalog import assign_models_zipf
@@ -91,11 +93,13 @@ class BenchmarkTester:
         self.arrival_rate = arrival_rate
 
         self.schedulers = {
-            "RoundRobin": RoundRobinScheduler,
-            "HEFT":       HEFTScheduler,
-            "GA":         GAScheduler,
-            "PSO":        PSOScheduler,
-            "RL":         RLScheduler,
+            "RoundRobin":    RoundRobinScheduler,
+            "LeastLoaded":   LeastLoadedScheduler,
+            "ShortestQueue": ShortestQueueScheduler,
+            "HEFT":          HEFTScheduler,
+            "GA":            GAScheduler,
+            "PSO":           PSOScheduler,
+            "RL":            RLScheduler,
         }
 
     # ----------------------------------------------------------------
@@ -654,7 +658,7 @@ if __name__ == "__main__":
     total_tasks = args.tasks
     interval    = args.interval
     n_checkpoints = total_tasks // interval
-    total = len(edge_counts) * 5 * num_runs
+    total = len(edge_counts) * 7 * num_runs   # 7 调度器
 
     # ---- Print run header ----
     if args.workload == "inference":
@@ -681,7 +685,7 @@ if __name__ == "__main__":
     print(f"  Total tasks    : {total_tasks}")
     print(f"  Checkpoint     : every {interval} tasks "
           f"({n_checkpoints} data points / run)")
-    print(f"  Schedulers     : RoundRobin, HEFT, GA, PSO, RL")
+    print(f"  Schedulers     : RoundRobin, LeastLoaded, ShortestQueue, HEFT, GA, PSO, RL")
     print(aigc_line)
     print(f"  Ablation       : {args.ablation}")
     print(f"  Output dir     : {output_dir}")
@@ -714,7 +718,8 @@ if __name__ == "__main__":
         "trace_preset": args.trace_preset if args.workload == "inference" else None,
         "arrival_rate": args.arrival_rate if args.workload == "inference" else None,
         "quick":       args.quick,
-        "schedulers":  ["RoundRobin", "HEFT", "GA", "PSO", "RL"],
+        "schedulers":  ["RoundRobin", "LeastLoaded", "ShortestQueue",
+                         "HEFT", "GA", "PSO", "RL"],
         "cli_argv":    sys.argv,
     }
     with open(os.path.join(output_dir, "run_manifest.json"),
