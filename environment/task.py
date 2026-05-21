@@ -57,6 +57,7 @@ class Task:
         self.assigned_server = None  # 分配的服务器
         self.transfer_delay = 0.0   # 数据传输延迟（秒），由调度器设置
         self.cold_load_delay = 0.0  # M1: 模型冷加载延迟（秒），由 server 设置
+        self.batch_size_at_admit = 1  # M3: 被 server 接纳时的批大小，仅用于诊断
     
     def check_dependencies(self, completed_tasks: Set[int]) -> bool:
         return all(dep in completed_tasks for dep in self.dependencies)

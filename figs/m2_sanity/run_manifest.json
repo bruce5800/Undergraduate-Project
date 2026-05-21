@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-05-21T16:27:06",
+  "git_commit": "b9be8b7f308da89401d76599135faddb26ad6ed7",
+  "num_runs": 5,
+  "edge_counts": [
+    3,
+    5
+  ],
+  "workload": "inference",
+  "total_tasks": 100,
+  "interval": 20,
+  "aigc": false,
+  "aigc_alpha": null,
+  "quick": false,
+  "schedulers": [
+    "RoundRobin",
+    "HEFT",
+    "GA",
+    "PSO",
+    "RL"
+  ],
+  "cli_argv": [
+    "brenchmark.py",
+    "--workload",
+    "inference",
+    "--runs",
+    "5",
+    "--tasks",
+    "100",
+    "--edge",
+    "3",
+    "5",
+    "--out",
+    "figs/m2_sanity"
+  ]
+}

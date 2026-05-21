@@ -1,12 +1,26 @@
 from enum import Enum
 import heapq
-from environment.task import Task, TaskStatus
+from environment.task import Task, TaskStatus, TaskKind
 from environment.model_catalog import CATALOG, ModelSpec
 
 
 class ServerType(Enum):
     CLOUD = 1
     EDGE = 2
+
+
+# ================================================================
+# M3: Continuous batching 参数
+#
+# 当服务器同时跑多个同模型同阶段的 AIGC 任务时，它们共享 GPU；
+# 单任务执行时长按
+#   T_batch = T_solo × (1 + (B - 1) × overhead)
+# 计算。Prefill 计算密集（compute-bound），并行收益低、overhead 高；
+# Decode 内存密集（memory-bound），并行几乎免费、overhead 低。
+# 数量级与 vLLM/TensorRT-LLM 公开 benchmark 一致。
+# ================================================================
+PREFILL_BATCH_OVERHEAD = 0.30   # 每多一个并发请求，prefill 慢 30%
+DECODE_BATCH_OVERHEAD  = 0.05   # 每多一个并发请求，decode 慢 5%
 
 
 class Server:
@@ -151,6 +165,41 @@ class Server:
         """
         return task.input_size + getattr(task, "kv_cache_GB", 0.0)
 
+    # ================================================================
+    # M3: Continuous batching 辅助
+    # ================================================================
+
+    def _current_batch_size(self, model_id: str, kind: TaskKind) -> int:
+        """统计当前 running 中、同 model 同 kind 的任务数（不含自身）。"""
+        if model_id is None or kind == TaskKind.GENERIC:
+            return 0
+        return sum(1 for t in self.running_tasks
+                   if t.model_id == model_id and t.kind == kind)
+
+    @staticmethod
+    def _batching_overhead(kind: TaskKind) -> float:
+        """每多一个并发请求带来的相对执行时间增量。"""
+        if kind == TaskKind.PREFILL:
+            return PREFILL_BATCH_OVERHEAD
+        if kind == TaskKind.DECODE:
+            return DECODE_BATCH_OVERHEAD
+        return 0.0   # GENERIC 不参与 batching
+
+    def _batch_slot_full(self, task: Task) -> bool:
+        """若 task 是 AIGC 阶段任务且其模型的 batch 已满，则拒绝接纳。
+
+        Generic 任务永远不会被 batch 满阻塞。
+        """
+        if task.kind == TaskKind.GENERIC or task.model_id is None:
+            return False
+        if task.model_id not in CATALOG:
+            return False
+        spec = CATALOG[task.model_id]
+        if spec.max_batch_size <= 1:
+            return False   # 该模型没启用 batching
+        current = self._current_batch_size(task.model_id, task.kind)
+        return current >= spec.max_batch_size
+
     def can_allocate(self, task: Task) -> bool:
         """检查是否满足资源需求。"""
         footprint = self._activation_footprint(task)
@@ -161,6 +210,10 @@ class Server:
         storage_ok = (self.used_storage + task.output_size
                       <= self.total_storage)
         if not (compute_ok and storage_ok):
+            return False
+
+        # M3: Batch slot 满 → admission control 拒绝接纳
+        if self._batch_slot_full(task):
             return False
 
         # 显存：分通用任务 vs AIGC 任务两种语义
@@ -221,10 +274,18 @@ class Server:
                 task.status = TaskStatus.RUNNING
                 task.assigned_server = self.server_id
 
-                # 执行时间 = 传输延迟 + 冷加载延迟 + 计算时间
-                exec_time = task.workload / self.total_compute
+                # M3: 按当前同模同阶段的并发数计算 batched 执行时长
+                # batch_size 包含自己：当前 running 中同 model 同 kind 的数量 + 1
+                batch_size = self._current_batch_size(
+                    task.model_id, task.kind) + 1
+                overhead = self._batching_overhead(task.kind)
+                solo_exec = task.workload / self.total_compute
+                effective_exec = solo_exec * (1.0 + (batch_size - 1) * overhead)
+                task.batch_size_at_admit = batch_size
+
+                # 执行时间 = 传输延迟 + 冷加载延迟 + batched 计算时间
                 task.start_time = current_time + task.transfer_delay + cold
-                task.end_time = task.start_time + exec_time
+                task.end_time = task.start_time + effective_exec
 
                 self.running_tasks.append(task)
                 self.task_history.append(task)
