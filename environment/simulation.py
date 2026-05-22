@@ -2,6 +2,7 @@ import logging
 from environment.server import Server, ServerType
 from environment.network import Network
 from environment.task import TaskStatus
+from environment.energy import step_energy, infer_power_profile
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,11 @@ class Simulation:
         for task in tasks:
             self.tasks[task.task_id] = task
 
-    def step(self, scheduler, current_time):
-        """执行一个仿真时间步：完成检查 -> 依赖更新 -> 调度 -> 处理队列"""
+    def step(self, scheduler, current_time, dt: float = 0.1):
+        """执行一个仿真时间步：完成检查 -> 依赖更新 -> 调度 -> 处理队列 -> 能耗累加。
+
+        dt = 仿真时间步长（秒），用于累加能耗。默认 0.1，与仿真主循环一致。
+        """
         # 1. 检查任务完成
         for task in self.tasks.values():
             if task.status == TaskStatus.RUNNING and task.end_time is not None:
@@ -54,13 +58,18 @@ class Simulation:
         for server in self.servers.values():
             server.process_tasks(current_time)
 
+        # 5. E1: 累加这一仿真步的能耗
+        for server in self.servers.values():
+            step_energy(server, dt)
+
     def setup_servers(self, num_servers):
         """设置服务器节点（模拟AIGC云边推理场景）"""
         # 云服务器：高算力GPU集群
         cloud = Server(0, ServerType.CLOUD,
                       compute_capacity=200, memory=128,
                       storage=500, bandwidth=1000,
-                      enable_batching=self.enable_batching)
+                      enable_batching=self.enable_batching,
+                      power_profile="cloud_A100")
 
         # 边缘服务器：异构GPU节点（强/中/弱三档）
         #   (id, compute_TFLOPS, memory_GB, storage_GB, bandwidth_Mbps)
@@ -77,9 +86,11 @@ class Simulation:
         edge_servers = []
         for i, config in enumerate(edge_configs[:num_servers-1]):
             server_id, compute, memory, storage, bandwidth = config
+            profile = infer_power_profile(ServerType.EDGE, compute, memory)
             edge_servers.append(
                 Server(server_id, ServerType.EDGE, compute, memory, storage, bandwidth,
-                       enable_batching=self.enable_batching)
+                       enable_batching=self.enable_batching,
+                       power_profile=profile)
             )
 
         self.servers = {s.server_id: s for s in [cloud] + edge_servers}

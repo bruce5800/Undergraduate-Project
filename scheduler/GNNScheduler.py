@@ -594,6 +594,8 @@ class GNNScheduler(BaseScheduler):
             server.loaded_models.clear()
             server.model_refs.clear()
             server.weight_vram_used = 0.0
+            # E1 修复：能耗也要重置
+            server.accumulated_energy_J = 0.0
         self.sim.completed_tasks.clear()
 
     def _force_update(self):

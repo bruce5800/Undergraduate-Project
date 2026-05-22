@@ -338,6 +338,8 @@ class RLScheduler(BaseScheduler):
             server.running_tasks.clear()
             server.task_queue.clear()
             server.task_history.clear()
+            # E1 修复：能耗也要重置，否则预训练 20 轮能耗会算到 benchmark 里
+            server.accumulated_energy_J = 0.0
 
         # 重置全局完成集合
         self.sim.completed_tasks.clear()

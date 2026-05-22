@@ -52,7 +52,9 @@ from environment.model_catalog import assign_models_zipf
 # ====================================================================
 # 两类 workload 共用的基础指标
 COMMON_METRICS = ["makespan", "avg_e2e_latency",
-                  "avg_utilization", "load_balance_std"]
+                  "avg_utilization", "load_balance_std",
+                  # E2: 能耗指标
+                  "total_energy_J", "avg_power_W"]
 
 # inference workload 额外追加的 AIGC 标准指标
 AIGC_METRICS = [
@@ -61,6 +63,8 @@ AIGC_METRICS = [
     "goodput_tps",
     "slo_attainment",
     "req_e2e_p50", "req_e2e_p95",
+    # E2: 能效指标
+    "energy_per_token", "energy_per_request",
 ]
 
 # inference workload 的模型混合预设（控制工作负载的 AIGC 物理压力）
@@ -313,12 +317,21 @@ class BenchmarkTester:
         # 4) Completion ratio
         completed_ratio = len(sim.completed_tasks) / max(len(sim.tasks), 1)
 
+        # E2: 能耗指标
+        total_energy_J = sum(
+            getattr(s, "accumulated_energy_J", 0.0)
+            for s in sim.servers.values()
+        )
+        avg_power_W = total_energy_J / max(current_time, 1e-6)
+
         out = {
             "makespan":         makespan,
             "avg_e2e_latency":  round(avg_e2e, 4),
             "avg_utilization":  round(avg_util, 4),
             "load_balance_std": round(load_std, 4),
             "completed_ratio":  round(completed_ratio, 4),
+            "total_energy_J":   round(total_energy_J, 2),
+            "avg_power_W":      round(avg_power_W, 2),
         }
 
         # M4 step1: inference workload 追加 AIGC 标准指标
@@ -384,16 +397,28 @@ class BenchmarkTester:
             return float(np.percentile(arr, q)) if arr else 0.0
 
         n = len(full_reqs)
+
+        # E2: 能效指标
+        total_energy_J = sum(
+            getattr(s, "accumulated_energy_J", 0.0)
+            for s in sim.servers.values()
+        )
+        energy_per_token = (total_energy_J / max(total_output_tokens, 1)
+                            if total_output_tokens > 0 else 0.0)
+        energy_per_request = (total_energy_J / max(n, 1) if n > 0 else 0.0)
+
         return {
-            "ttft_p50":      round(_p(ttfts, 50), 4),
-            "ttft_p95":      round(_p(ttfts, 95), 4),
-            "ttft_p99":      round(_p(ttfts, 99), 4),
-            "tpot_p50":      round(_p(tpots, 50), 4),
-            "tpot_p95":      round(_p(tpots, 95), 4),
-            "req_e2e_p50":   round(_p(e2es, 50), 4),
-            "req_e2e_p95":   round(_p(e2es, 95), 4),
-            "goodput_tps":   round(total_output_tokens / max(current_time, 1e-6), 2),
-            "slo_attainment": round(slo_hits / max(n, 1), 4),
+            "ttft_p50":         round(_p(ttfts, 50), 4),
+            "ttft_p95":         round(_p(ttfts, 95), 4),
+            "ttft_p99":         round(_p(ttfts, 99), 4),
+            "tpot_p50":         round(_p(tpots, 50), 4),
+            "tpot_p95":         round(_p(tpots, 95), 4),
+            "req_e2e_p50":      round(_p(e2es, 50), 4),
+            "req_e2e_p95":      round(_p(e2es, 95), 4),
+            "goodput_tps":      round(total_output_tokens / max(current_time, 1e-6), 2),
+            "slo_attainment":   round(slo_hits / max(n, 1), 4),
+            "energy_per_token":  round(energy_per_token, 4),
+            "energy_per_request": round(energy_per_request, 2),
         }
 
     # ================================================================

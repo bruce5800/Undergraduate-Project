@@ -42,7 +42,8 @@ class Server:
                  storage: float,           # 存储容量 (GB)
                  bandwidth: float,         # 上行带宽 (Mbps)
                  location: str = None,     # 位置 (可选，针对边缘服务器)
-                 enable_batching: bool = True  # M3 step3: 消融开关
+                 enable_batching: bool = True,  # M3 step3: 消融开关
+                 power_profile: str = None  # E1: 能耗 profile，None 时不追踪能耗
                  ):
         self.server_id = server_id
         self.type = server_type
@@ -67,6 +68,10 @@ class Server:
 
         # ---- M3 step3: 消融开关 ----
         self.enable_batching = enable_batching
+
+        # ---- E1: 能耗追踪 ----
+        self.power_profile = power_profile           # None = 不追踪
+        self.accumulated_energy_J = 0.0              # 累计能耗（焦耳）
 
     # ================================================================
     # AIGC: 模型驻留与冷加载辅助
