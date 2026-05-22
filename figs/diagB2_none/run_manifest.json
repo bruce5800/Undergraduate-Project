@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-05-22T17:56:27",
+  "git_commit": "e5db4cce5f45d6649a1b566851307b2993ab71de",
+  "num_runs": 30,
+  "edge_counts": [
+    5
+  ],
+  "workload": "inference",
+  "total_tasks": 100,
+  "interval": 20,
+  "aigc": false,
+  "aigc_alpha": null,
+  "ablation": "none",
+  "ttft_slo": 2.0,
+  "tpot_slo": 0.1,
+  "trace_preset": "lognormal",
+  "arrival_rate": 2.0,
+  "quick": false,
+  "schedulers": [
+    "RoundRobin",
+    "LeastLoaded",
+    "ShortestQueue",
+    "HEFT",
+    "GA",
+    "PSO",
+    "A3C_R2N2",
+    "RL"
+  ],
+  "cli_argv": [
+    "brenchmark.py",
+    "--workload",
+    "inference",
+    "--trace-preset",
+    "lognormal",
+    "--arrival-rate",
+    "2.0",
+    "--runs",
+    "30",
+    "--tasks",
+    "100",
+    "--edge",
+    "5",
+    "--llm-mix",
+    "large-heavy",
+    "--ablation",
+    "none",
+    "--rl-only",
+    "--out",
+    "figs/diagB2_none"
+  ]
+}

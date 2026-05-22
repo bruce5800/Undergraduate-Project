@@ -220,7 +220,9 @@ class RLScheduler(BaseScheduler):
                  enable_action_mask: bool = True,
                  enable_gae: bool = True,
                  enable_pretrain: bool = True,
-                 enable_entropy: bool = True):
+                 enable_entropy: bool = True,
+                 # ---- F2 patch: 抗"cloud collapse"惩罚 ----
+                 enable_cloud_overuse: bool = True):
         super().__init__(sim_env)
 
         # 保存消融开关
@@ -232,6 +234,7 @@ class RLScheduler(BaseScheduler):
         self.enable_gae = enable_gae
         self.enable_pretrain = enable_pretrain
         self.enable_entropy = enable_entropy
+        self.enable_cloud_overuse = enable_cloud_overuse
 
         self.server_ids = sorted(sim_env.servers.keys())
         self.state_encoder = StateEncoder(sim_env,
@@ -454,12 +457,28 @@ class RLScheduler(BaseScheduler):
                 if task.output_size > 0.1:  # KV 较大才惩罚明显
                     affinity_bonus = -0.5
 
-        return (0.30 * time_reward
-                + 0.15 * balance_reward
+        # 7) Cloud-overuse penalty （F2 patch：打破 cloud collapse）
+        # 诊断发现 policy 总选 cloud（基础特征上 cloud 算力压倒优势），导致
+        # AIGC reward 进不来。这里只在 cloud 且 edge 替代可用时按云利用率惩罚，
+        # 把"不必要的云"的成本明确加进梯度信号里。
+        cloud_overuse = 0.0
+        if self.enable_cloud_overuse and server.type == ServerType.CLOUD:
+            edge_can_serve = any(
+                s.type == ServerType.EDGE and s.can_allocate(task)
+                for s in self.sim.servers.values()
+            )
+            if edge_can_serve:
+                cloud_util = server.used_compute / max(server.total_compute, 1e-6)
+                cloud_overuse = -cloud_util   # [-1, 0]
+
+        # F2 重新分配权重：base 0.45 + AIGC 0.45 + cloud_overuse 0.10 = 1.0
+        return (0.25 * time_reward       # 0.30 → 0.25
+                + 0.10 * balance_reward  # 0.15 → 0.10
                 + 0.10 * match_reward
                 + 0.15 * warm_bonus
                 + 0.20 * batch_bonus
-                + 0.10 * affinity_bonus)
+                + 0.10 * affinity_bonus
+                + 0.10 * cloud_overuse)  # NEW
 
     # =============================================================
     #  经验存储与 PPO 更新

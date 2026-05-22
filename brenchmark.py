@@ -62,6 +62,13 @@ AIGC_METRICS = [
     "req_e2e_p50", "req_e2e_p95",
 ]
 
+# inference workload 的模型混合预设（控制工作负载的 AIGC 物理压力）
+LLM_MIX_LISTS = {
+    "uniform":     ["llama-7b", "llama-13b", "llama-70b"],
+    "small-heavy": ["llama-7b"] * 8 + ["llama-13b"] * 2 + ["llama-70b"] * 1,
+    "large-heavy": ["llama-7b"] * 1 + ["llama-13b"] * 2 + ["llama-70b"] * 7,
+}
+
 
 # ====================================================================
 #  BenchmarkTester
@@ -76,7 +83,8 @@ class BenchmarkTester:
                  ttft_slo: float = 2.0,
                  tpot_slo: float = 0.1,
                  trace_preset: str = "uniform",
-                 arrival_rate: float = None):
+                 arrival_rate: float = None,
+                 llm_mix: str = "uniform"):
         self.num_runs = num_runs
         self.base_seed = base_seed
         # M1: AIGC 模式 —— 给任务按 Zipf 分配模型 ID，触发冷加载与权重驻留物理
@@ -92,6 +100,8 @@ class BenchmarkTester:
         # M4 step2: trace 配置 —— prompt/output 分布 + Poisson 到达率
         self.trace_preset = trace_preset
         self.arrival_rate = arrival_rate
+        # 诊断扩展: 模型混合预设
+        self.llm_mix = llm_mix
 
         self.schedulers = {
             "RoundRobin":    RoundRobinScheduler,
@@ -120,6 +130,7 @@ class BenchmarkTester:
         "no_gae":             {"rl": {"enable_gae": False}},
         "no_pretrain":        {"rl": {"enable_pretrain": False}},
         "no_entropy":         {"rl": {"enable_entropy": False}},
+        "no_cloud_overuse":   {"rl": {"enable_cloud_overuse": False}},
         # 组合：所有 AIGC 行为奖励一起关
         "no_all_aigc_rewards": {"rl": {
             "enable_warm_reward":     False,
@@ -169,6 +180,7 @@ class BenchmarkTester:
                 # M4 step2: 选择 prompt/output 分布与 Poisson 到达率
                 dist=self.trace_preset,
                 arrival_rate=self.arrival_rate,
+                model_ids=LLM_MIX_LISTS.get(self.llm_mix),
             )
             # 不 shuffle —— 依赖关系由 task.dependencies 保证，保留请求级顺序
             # 便于调试观察。
@@ -212,11 +224,13 @@ class BenchmarkTester:
 
         sim = self.create_simulation(total_tasks, num_edge_servers, seed)
 
+        # F1 patch: pretrain 5→20，给 PPO 足够样本去探索 cloud 之外的策略
         if scheduler_class is RLScheduler:
-            scheduler = RLScheduler(sim, pretrain_episodes=5,
+            scheduler = RLScheduler(sim, pretrain_episodes=20,
                                      **self._rl_kwargs())
         elif scheduler_class is A3CR2NScheduler:
-            scheduler = A3CR2NScheduler(sim, pretrain_episodes=5)
+            # A3C 同步加到 20，保持 train budget 对等以确保公平对比
+            scheduler = A3CR2NScheduler(sim, pretrain_episodes=20)
         else:
             scheduler = scheduler_class(sim)
 
@@ -645,6 +659,12 @@ if __name__ == "__main__":
              "None = all requests arrive at t=0 (burst); "
              "set to e.g. 5.0 for one request per 200ms on average.")
     parser.add_argument(
+        "--llm-mix", type=str, default="uniform",
+        choices=list(LLM_MIX_LISTS.keys()),
+        help="LLM mix preset for inference workload: "
+             "'uniform' (default) / 'small-heavy' (mostly 7b) / "
+             "'large-heavy' (mostly 70b, stress AIGC physics).")
+    parser.add_argument(
         "--out", type=str, default="figs",
         help="Output directory for CSVs (default: figs). "
              "Use a labelled subdir like 'figs/m1_baseline' to keep runs separate.")
@@ -757,7 +777,8 @@ if __name__ == "__main__":
                               ttft_slo=args.ttft_slo,
                               tpot_slo=args.tpot_slo,
                               trace_preset=args.trace_preset,
-                              arrival_rate=args.arrival_rate)
+                              arrival_rate=args.arrival_rate,
+                              llm_mix=args.llm_mix)
 
     if args.rl_only:
         tester.schedulers = {"RL": tester.schedulers["RL"]}
