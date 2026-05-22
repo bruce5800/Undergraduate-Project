@@ -40,6 +40,7 @@ from scheduler.PSOscheduler import PSOScheduler
 from scheduler.RRscheduler import RoundRobinScheduler
 from scheduler.LeastLoadedScheduler import LeastLoadedScheduler
 from scheduler.ShortestQueueScheduler import ShortestQueueScheduler
+from scheduler.A3CR2NScheduler import A3CR2NScheduler
 from environment.simulation import Simulation
 from environment.task import Task, TaskStatus, TaskKind
 from environment.model_catalog import assign_models_zipf
@@ -99,6 +100,7 @@ class BenchmarkTester:
             "HEFT":          HEFTScheduler,
             "GA":            GAScheduler,
             "PSO":           PSOScheduler,
+            "A3C_R2N2":      A3CR2NScheduler,
             "RL":            RLScheduler,
         }
 
@@ -109,7 +111,7 @@ class BenchmarkTester:
         "none":               {},
         # 物理层（Simulation/Server）
         "no_batching":        {"sim": {"enable_batching": False}},
-        # RL scheduler 层
+        # RL scheduler 层 —— 单项
         "no_warm_reward":     {"rl": {"enable_warm_reward": False}},
         "no_batch_reward":    {"rl": {"enable_batch_reward": False}},
         "no_affinity_reward": {"rl": {"enable_affinity_reward": False}},
@@ -118,6 +120,19 @@ class BenchmarkTester:
         "no_gae":             {"rl": {"enable_gae": False}},
         "no_pretrain":        {"rl": {"enable_pretrain": False}},
         "no_entropy":         {"rl": {"enable_entropy": False}},
+        # 组合：所有 AIGC 行为奖励一起关
+        "no_all_aigc_rewards": {"rl": {
+            "enable_warm_reward":     False,
+            "enable_batch_reward":    False,
+            "enable_affinity_reward": False,
+        }},
+        # 组合：所有 AIGC 设计（state + reward）一起关 —— 接近 A3C-R2N2
+        "no_aigc_full":       {"rl": {
+            "enable_warm_reward":     False,
+            "enable_batch_reward":    False,
+            "enable_affinity_reward": False,
+            "enable_aigc_state":      False,
+        }},
     }
 
     def _sim_kwargs(self) -> dict:
@@ -200,6 +215,8 @@ class BenchmarkTester:
         if scheduler_class is RLScheduler:
             scheduler = RLScheduler(sim, pretrain_episodes=5,
                                      **self._rl_kwargs())
+        elif scheduler_class is A3CR2NScheduler:
+            scheduler = A3CR2NScheduler(sim, pretrain_episodes=5)
         else:
             scheduler = scheduler_class(sim)
 
@@ -606,6 +623,10 @@ if __name__ == "__main__":
              "no_affinity_reward / no_aigc_state / no_action_mask / "
              "no_gae / no_pretrain / no_entropy). 'none' = full model.")
     parser.add_argument(
+        "--rl-only", action="store_true",
+        help="Run only the RL scheduler (skip other 7 baselines). "
+             "Useful for fast ablation studies focused on RL component analysis.")
+    parser.add_argument(
         "--ttft-slo", type=float, default=2.0,
         help="TTFT SLO threshold in seconds (inference workload only). Default 2.0s.")
     parser.add_argument(
@@ -658,7 +679,8 @@ if __name__ == "__main__":
     total_tasks = args.tasks
     interval    = args.interval
     n_checkpoints = total_tasks // interval
-    total = len(edge_counts) * 7 * num_runs   # 7 调度器
+    n_schedulers = 1 if args.rl_only else 8
+    total = len(edge_counts) * n_schedulers * num_runs
 
     # ---- Print run header ----
     if args.workload == "inference":
@@ -685,7 +707,8 @@ if __name__ == "__main__":
     print(f"  Total tasks    : {total_tasks}")
     print(f"  Checkpoint     : every {interval} tasks "
           f"({n_checkpoints} data points / run)")
-    print(f"  Schedulers     : RoundRobin, LeastLoaded, ShortestQueue, HEFT, GA, PSO, RL")
+    print(f"  Schedulers     : RoundRobin, LeastLoaded, ShortestQueue, "
+          f"HEFT, GA, PSO, A3C_R2N2, RL")
     print(aigc_line)
     print(f"  Ablation       : {args.ablation}")
     print(f"  Output dir     : {output_dir}")
@@ -719,7 +742,7 @@ if __name__ == "__main__":
         "arrival_rate": args.arrival_rate if args.workload == "inference" else None,
         "quick":       args.quick,
         "schedulers":  ["RoundRobin", "LeastLoaded", "ShortestQueue",
-                         "HEFT", "GA", "PSO", "RL"],
+                         "HEFT", "GA", "PSO", "A3C_R2N2", "RL"],
         "cli_argv":    sys.argv,
     }
     with open(os.path.join(output_dir, "run_manifest.json"),
@@ -735,6 +758,10 @@ if __name__ == "__main__":
                               tpot_slo=args.tpot_slo,
                               trace_preset=args.trace_preset,
                               arrival_rate=args.arrival_rate)
+
+    if args.rl_only:
+        tester.schedulers = {"RL": tester.schedulers["RL"]}
+        print(f"  --rl-only: 只跑 RL 调度器（其他 baseline 跳过）")
     raw, summary = tester.run_benchmark(
         edge_counts, total_tasks=total_tasks,
         checkpoint_interval=interval,

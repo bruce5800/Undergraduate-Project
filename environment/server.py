@@ -223,6 +223,16 @@ class Server:
         if self._batch_slot_full(task):
             return False
 
+        # M3 step3 修正：batching 关闭时模拟 GPU 串行行为
+        # 真实 GPU 一次只能做一个 forward pass；只有 batching 把多请求合并到
+        # 一个 forward pass 才能并行。关闭 batching 时同台不允许两个 inference
+        # 任务并发，必须排队 —— 这才能让 no_batching 反映 batching 的真实价值。
+        if (not self.enable_batching
+                and task.kind in (TaskKind.PREFILL, TaskKind.DECODE)):
+            for running in self.running_tasks:
+                if running.kind in (TaskKind.PREFILL, TaskKind.DECODE):
+                    return False
+
         # 显存：分通用任务 vs AIGC 任务两种语义
         if task.model_id is None or task.model_id not in CATALOG:
             # 原逻辑：占用直接加到 used_memory 校验

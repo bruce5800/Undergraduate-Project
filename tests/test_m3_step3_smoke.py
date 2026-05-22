@@ -257,6 +257,48 @@ def test_no_entropy():
 
 
 # ====================================================================
+# T10. M4 patch: no_batching 让 GPU 串行（修复旧 batching 模型）
+# ====================================================================
+
+def test_no_batching_means_serial_gpu():
+    """M4 patch: no_batching 应该让同台 inference 任务串行排队（GPU 串行模型）。
+
+    旧模型问题：multiple inference 任务能并发 → 关 batching 反而更快（错误）
+    新模型：no_batching 时只允许 1 个 inference 同台 → 必须排队，反映 GPU 串行真相
+    """
+    sim_off = Simulation(num_servers=4, enable_batching=False)
+    sim_on  = Simulation(num_servers=4, enable_batching=True)
+
+    for sim in (sim_off, sim_on):
+        s = sim.servers[0]
+        s.loaded_models["llama-7b"] = 0.0
+        s.weight_vram_used = CATALOG["llama-7b"].weights_GB
+
+    def _admit_n(sim, n):
+        s = sim.servers[0]
+        admitted = 0
+        for i in range(n):
+            pair = Task.generate_inference_request(i, 2*i, "llama-7b", 200, 50)
+            pair[0].status = TaskStatus.COMPLETED
+            d = pair[1]
+            d.status = TaskStatus.READY
+            s.add_task(d, priority=1.0)
+            s.process_tasks(current_time=0.0)
+            if d.status == TaskStatus.RUNNING:
+                admitted += 1
+        return admitted
+
+    n_off = _admit_n(sim_off, 5)
+    n_on  = _admit_n(sim_on, 5)
+
+    assert n_off == 1, \
+        f"no_batching 应该只准 1 个 inference 同台，实际 {n_off}"
+    assert n_on  >= 4, \
+        f"batching on 应该准多个 inference 同台，实际 {n_on}"
+    print(f"  [PASS] T10 no_batching serializes GPU: off→{n_off} admitted, on→{n_on}")
+
+
+# ====================================================================
 # main
 # ====================================================================
 
@@ -271,6 +313,7 @@ if __name__ == "__main__":
         test_no_gae,
         test_no_pretrain,
         test_no_entropy,
+        test_no_batching_means_serial_gpu,
     ]
     failed = 0
     for t in tests:
