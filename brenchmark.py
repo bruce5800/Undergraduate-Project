@@ -41,6 +41,7 @@ from scheduler.RRscheduler import RoundRobinScheduler
 from scheduler.LeastLoadedScheduler import LeastLoadedScheduler
 from scheduler.ShortestQueueScheduler import ShortestQueueScheduler
 from scheduler.A3CR2NScheduler import A3CR2NScheduler
+from scheduler.GNNScheduler import GNNScheduler
 from environment.simulation import Simulation
 from environment.task import Task, TaskStatus, TaskKind
 from environment.model_catalog import assign_models_zipf
@@ -112,6 +113,7 @@ class BenchmarkTester:
             "PSO":           PSOScheduler,
             "A3C_R2N2":      A3CR2NScheduler,
             "RL":            RLScheduler,
+            "GNN":           GNNScheduler,
         }
 
     # ----------------------------------------------------------------
@@ -231,6 +233,10 @@ class BenchmarkTester:
         elif scheduler_class is A3CR2NScheduler:
             # A3C 同步加到 20，保持 train budget 对等以确保公平对比
             scheduler = A3CR2NScheduler(sim, pretrain_episodes=20)
+        elif scheduler_class is GNNScheduler:
+            # GNN 也用 20 episodes，复用 ablation kwargs
+            scheduler = GNNScheduler(sim, pretrain_episodes=20,
+                                      **self._rl_kwargs())
         else:
             scheduler = scheduler_class(sim)
 
@@ -699,7 +705,7 @@ if __name__ == "__main__":
     total_tasks = args.tasks
     interval    = args.interval
     n_checkpoints = total_tasks // interval
-    n_schedulers = 1 if args.rl_only else 8
+    n_schedulers = 1 if args.rl_only else 9   # +GNN
     total = len(edge_counts) * n_schedulers * num_runs
 
     # ---- Print run header ----
