@@ -16,34 +16,45 @@
 
 ---
 
-## Abstract（草稿）
+## Abstract
 
-Large language model (LLM) inference workloads exhibit unique physical
-characteristics that distinguish them from generic distributed jobs:
-**model weight residency** in GPU memory, **continuous batching** of
-same-model requests, **KV-cache locality** between prefill and decode
-phases, and **memory-bandwidth-bound** decode behavior. Existing
-cloud-edge schedulers, designed for generic DAG workloads, fail to
-exploit these physics, leaving substantial efficiency on the table.
+Large language model (LLM) inference exhibits five physical
+characteristics that distinguish it from generic distributed
+workloads: **model weight residency** in GPU memory,
+**KV-cache locality** between prefill and decode phases,
+**continuous batching** of same-model requests, **memory-
+bandwidth-bound** decode latency, and a strict **two-phase
+request lifecycle**. Existing cloud-edge schedulers, designed
+for generic DAG workloads, do not natively encode these
+physics and leave substantial efficiency on the table.
 
-We present a comprehensive AIGC-aware simulation platform and an
-**AIGC-aware reinforcement learning scheduler** that achieves
-**Pareto dominance** in service-level objective (SLO) attainment
-and energy efficiency. Our platform models all four AIGC physics
-(M1–M4 milestones), supports nine schedulers as baselines (from
-RoundRobin to a modern A3C-R2N2 baseline and a GNN-based variant),
-and exposes ten ablation switches for systematic component analysis.
+We present an open-source AIGC-aware simulation platform that
+models all five physics and an **AIGC-aware PPO scheduler**
+that exposes them to the policy through structured state
+features and reward shaping. We evaluate against eight
+baselines spanning load-balancing heuristics (Round-Robin,
+Least-Loaded, Shortest-Queue), classical DAG schedulers
+(HEFT, GA, PSO), and two modern deep-RL baselines (A3C-R2N2
+[Tuli'22] and a Decima-style GNN variant). Across N=30 runs
+per configuration, our scheduler achieves **Pareto dominance**
+in service-level objective (SLO) attainment and energy
+efficiency: **+28% SLO and −7% energy** per token at the
+canonical configuration (edge=5, λ=2 req/s), with statistical
+significance (p<0.05) on both axes against the four strongest
+comparators. The Pareto advantage extends robustly to edge
+counts {3, 5, 7} and arrival rates [0.5, 2] req/s; energy
+efficiency remains best in class (5–11% lower) across all 30
+tested configurations.
 
-Through extensive experiments (N=30 runs, 9 schedulers, multiple
-edge configurations and load levels), we show that our AIGC-aware
-PPO scheduler is **Pareto-dominant**: it achieves the highest SLO
-attainment (28.6% relative improvement over the best baseline,
-*p<0.05*) **and** the lowest energy per token (10–13% reduction,
-*p<0.05* against three of four strong baselines), simultaneously.
-A 10-component ablation reveals continuous batching and adequate
-pretraining are the dominant factors (−83% and −31% SLO drops when
-ablated), while AIGC-aware reward components provide additional
-robustness in long-tail latency and energy efficiency.
+A systematic **12-component ablation** reveals a more subtle
+structure: only continuous-batching simulation (−83% SLO when
+disabled) and adequate pretraining (−38% SLO) are individually
+significant; no single AIGC reward or state component shows
+detectable individual effect (all p > 0.39). We conclude that
+**AIGC-aware scheduling is a holistic system contribution
+rather than a clever reward trick**, and recommend joint
+ablation as a methodological standard for future AIGC
+scheduling claims.
 
 ---
 
