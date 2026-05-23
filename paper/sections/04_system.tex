@@ -124,6 +124,33 @@ interface allows any scheduler---from a 50-line round-robin
 to our PPO agent---to be swapped in without simulator
 modification, supporting fair controlled comparisons.
 
+\textbf{End-to-end architecture.} Fig.~\ref{fig:simulator-arch}
+summarizes the full simulator data flow: trace sources
+(\texttt{uniform}/\texttt{lognormal} presets, \texttt{ModelCatalog})
+feed a workload generator that emits prefill/decode DAGs;
+the simulator's \texttt{step()} loop transitions tasks
+\texttt{WAITING}~$\to$~\texttt{READY} as dependencies and
+arrival times allow, invokes the scheduler, and dispatches
+admitted tasks to heterogeneous servers (which model the four
+AIGC physics M1--M4 plus the energy meter); per-checkpoint
+common and AIGC metrics are then persisted alongside a
+reproducibility manifest. The same architecture supports
+every baseline and ablation in \S\ref{sec:eval}.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.92\textwidth]{trace_integration.pdf}
+  \caption{End-to-end architecture of our AIGC inference simulator.
+    Color bands denote (purple) trace sources, (blue) workload
+    generator, (red) simulation environment with M1--M4 physics
+    modules, (yellow) metrics collection, and (gray) output
+    artifacts. The minimal \texttt{scheduler.schedule()} interface
+    decouples policy from environment, letting all nine baselines
+    and twelve ablation configurations share the same physics
+    backbone for fair comparison.}
+  \label{fig:simulator-arch}
+\end{figure*}
+
 \subsection{AIGC-Aware Reinforcement Learning Scheduler}
 \label{sec:rl}
 

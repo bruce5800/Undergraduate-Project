@@ -13,3 +13,6 @@ sections/*.aux
 
 # Built PDF (covered by root .gitignore *.pdf as well)
 main.pdf
+
+# Source figures exported from drawio — override root *.pdf rule
+!figures/*.pdf

@@ -16,6 +16,18 @@ contrasts with (\S\ref{sec:bg-sched}).
 \subsection{LLM Inference: Prefill, Decode, KV Cache}
 \label{sec:bg-inference}
 
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.95\textwidth]{distributed_transformer.pdf}
+  \caption{Background: distributed Transformer training combining
+    data, tensor, and pipeline parallelism (DP\,$\times$\,TP\,$\times$\,PP)
+    with ZeRO-style sharded optimizer state. Our work focuses on
+    \emph{inference scheduling} of the resulting model, which inherits
+    the model-weight and KV-cache locality constraints that
+    parallelism choices impose at training time.}
+  \label{fig:transformer}
+\end{figure*}
+
 Modern LLMs are decoder-only
 Transformers~\cite{vaswani2017attention,brown2020gpt3} producing
 one output token at a time given a textual prompt. Inference
@@ -52,9 +64,22 @@ MB across the network (expensive) or re-running prefill
 Beyond the standard Transformer LLMs that are our focus, AIGC
 workloads also include text-to-image diffusion models (Stable
 Diffusion XL) whose inference pattern---iterative denoising
-steps invoking the same U-Net---is structurally different but
-shares the model-residency and batching characteristics that
-motivate our work.
+steps invoking the same U-Net (Fig.~\ref{fig:diffusion})---is
+structurally different but shares the model-residency and
+batching characteristics that motivate our work.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.95\textwidth]{distributed_diffusion.pdf}
+  \caption{Background: diffusion model inference. The forward
+    process gradually adds Gaussian noise to a clean image
+    ($x_0 \to x_T$, parameter-free); the reverse process
+    iteratively denoises ($x_T \to x_0$), invoking a shared
+    U-Net at every step. Each inference request therefore
+    triggers $T$ U-Net forward passes, making model-residency
+    and batching considerations as important as for LLM decode.}
+  \label{fig:diffusion}
+\end{figure*}
 
 \subsection{Continuous Batching and Modern Serving Systems}
 \label{sec:bg-batching}
