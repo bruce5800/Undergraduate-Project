@@ -1,0 +1,281 @@
+% =============================================================
+% references.bib — Bibliography for "Pareto-Dominant RL for
+% Cloud-Edge LLM Inference Scheduling"
+%
+% Sections:
+%   1. LLM serving systems & inference engines
+%   2. Cloud-edge / cluster scheduling (heuristic + metaheuristic)
+%   3. RL for scheduling
+%   4. Foundational ML / LLM models
+%   5. RL algorithms
+%   6. Simulation platforms
+%   7. ⚠ TODO: verify / replace
+%
+% Note: numerical details (page numbers, exact publishers) should be
+% double-checked against the original venues; this file uses the
+% canonical bibinfo from accepted versions.
+% =============================================================
+
+
+% --- 1. LLM serving systems --------------------------------------
+
+@inproceedings{kwon2023vllm,
+  author    = {Woosuk Kwon and Zhuohan Li and Siyuan Zhuang and Ying Sheng
+               and Lianmin Zheng and Cody Hao Yu and Joseph E. Gonzalez and
+               Hao Zhang and Ion Stoica},
+  title     = {Efficient Memory Management for Large Language Model Serving
+               with {PagedAttention}},
+  booktitle = {Proceedings of the 29th Symposium on Operating Systems
+               Principles (SOSP '23)},
+  year      = {2023},
+  pages     = {611--626},
+  doi       = {10.1145/3600006.3613165},
+  publisher = {ACM},
+}
+
+@inproceedings{yu2022orca,
+  author    = {Gyeong-In Yu and Joo Seong Jeong and Geon-Woo Kim and Soojeong
+               Kim and Byung-Gon Chun},
+  title     = {{Orca}: A Distributed Serving System for Transformer-Based
+               Generative Models},
+  booktitle = {16th {USENIX} Symposium on Operating Systems Design and
+               Implementation ({OSDI} 22)},
+  year      = {2022},
+  pages     = {521--538},
+}
+
+@inproceedings{agrawal2024sarathi,
+  author    = {Amey Agrawal and Nitin Kedia and Ashish Panwar and Jayashree
+               Mohan and Nipun Kwatra and Bhargav Gulavani and Alexey
+               Tumanov and Ramachandran Ramjee},
+  title     = {Taming Throughput-Latency Tradeoff in {LLM} Inference with
+               {Sarathi-Serve}},
+  booktitle = {18th {USENIX} Symposium on Operating Systems Design and
+               Implementation ({OSDI} 24)},
+  year      = {2024},
+}
+
+@inproceedings{patel2024splitwise,
+  author    = {Pratyush Patel and Esha Choukse and Chaojie Zhang and
+               Aashaka Shah and {\'I}{\~n}igo Goiri and Saeed Maleki and
+               Ricardo Bianchini},
+  title     = {{Splitwise}: Efficient Generative {LLM} Inference Using Phase
+               Splitting},
+  booktitle = {2024 ACM/IEEE 51st Annual International Symposium on
+               Computer Architecture (ISCA)},
+  year      = {2024},
+}
+
+@inproceedings{zhong2024distserve,
+  author    = {Yinmin Zhong and Shengyu Liu and Junda Chen and Jianbo Hu
+               and Yibo Zhu and Xuanzhe Liu and Xin Jin and Hao Zhang},
+  title     = {{DistServe}: Disaggregating Prefill and Decoding for
+               Goodput-Optimized Large Language Model Serving},
+  booktitle = {18th {USENIX} Symposium on Operating Systems Design and
+               Implementation ({OSDI} 24)},
+  year      = {2024},
+}
+
+@inproceedings{sun2024llumnix,
+  author    = {Biao Sun and Ziming Huang and Hanyu Zhao and Wencong Xiao
+               and Xinyi Zhang and Yong Li and Wei Lin},
+  title     = {{Llumnix}: Dynamic Scheduling for Large Language Model
+               Serving},
+  booktitle = {18th {USENIX} Symposium on Operating Systems Design and
+               Implementation ({OSDI} 24)},
+  year      = {2024},
+}
+
+
+% --- 2. Cloud-edge / cluster scheduling --------------------------
+
+@article{topcuoglu2002heft,
+  author    = {Haluk Topcuoglu and Salim Hariri and Min-You Wu},
+  title     = {Performance-Effective and Low-Complexity Task Scheduling for
+               Heterogeneous Computing},
+  journal   = {IEEE Transactions on Parallel and Distributed Systems},
+  volume    = {13},
+  number    = {3},
+  pages     = {260--274},
+  year      = {2002},
+  doi       = {10.1109/71.993206},
+}
+
+@book{holland1975adaptation,
+  author    = {John H. Holland},
+  title     = {Adaptation in Natural and Artificial Systems},
+  publisher = {University of Michigan Press},
+  year      = {1975},
+}
+
+@inproceedings{kennedy1995pso,
+  author    = {James Kennedy and Russell Eberhart},
+  title     = {Particle Swarm Optimization},
+  booktitle = {Proceedings of {ICNN}'95 - International Conference on
+               Neural Networks},
+  volume    = {4},
+  pages     = {1942--1948},
+  year      = {1995},
+}
+
+
+% --- 3. RL for scheduling ----------------------------------------
+
+@inproceedings{mao2019decima,
+  author    = {Hongzi Mao and Malte Schwarzkopf and Shaileshh Bojja
+               Venkatakrishnan and Zili Meng and Mohammad Alizadeh},
+  title     = {Learning Scheduling Algorithms for Data Processing Clusters},
+  booktitle = {Proceedings of the {ACM} Special Interest Group on Data
+               Communication ({SIGCOMM} '19)},
+  year      = {2019},
+  pages     = {270--288},
+  doi       = {10.1145/3341302.3342080},
+  publisher = {ACM},
+}
+
+@inproceedings{zhang2020rlscheduler,
+  author    = {Di Zhang and Dong Dai and Youbiao He and Forrest Sheng Bao
+               and Bing Xie},
+  title     = {{RLScheduler}: An Automated {HPC} Batch Job Scheduler Using
+               Reinforcement Learning},
+  booktitle = {Proceedings of the International Conference for High
+               Performance Computing, Networking, Storage and Analysis
+               ({SC} '20)},
+  year      = {2020},
+  publisher = {IEEE Press},
+}
+
+@article{tuli2022a3cr2n,
+  author    = {Shreshth Tuli and Shashikant Ilager and Kotagiri Ramamohanarao
+               and Rajkumar Buyya},
+  title     = {Dynamic Scheduling for Stochastic Edge-Cloud Computing
+               Environments Using {A3C} Learning and Residual Recurrent
+               Neural Networks},
+  journal   = {IEEE Transactions on Mobile Computing},
+  volume    = {21},
+  number    = {3},
+  pages     = {940--954},
+  year      = {2022},
+  doi       = {10.1109/TMC.2020.3017079},
+}
+
+
+% --- 4. Foundational ML / LLM models -----------------------------
+
+@inproceedings{vaswani2017attention,
+  author    = {Ashish Vaswani and Noam Shazeer and Niki Parmar and Jakob
+               Uszkoreit and Llion Jones and Aidan N. Gomez and Lukasz
+               Kaiser and Illia Polosukhin},
+  title     = {Attention Is All You Need},
+  booktitle = {Advances in Neural Information Processing Systems
+               ({NeurIPS} 2017)},
+  year      = {2017},
+  pages     = {5998--6008},
+}
+
+@inproceedings{brown2020gpt3,
+  author    = {Tom B. Brown and Benjamin Mann and Nick Ryder and Melanie
+               Subbiah and Jared Kaplan and Prafulla Dhariwal and Arvind
+               Neelakantan and others},
+  title     = {Language Models are Few-Shot Learners},
+  booktitle = {Advances in Neural Information Processing Systems
+               ({NeurIPS} 2020)},
+  year      = {2020},
+}
+
+
+% --- 5. RL algorithms --------------------------------------------
+
+@article{schulman2017ppo,
+  author    = {John Schulman and Filip Wolski and Prafulla Dhariwal and Alec
+               Radford and Oleg Klimov},
+  title     = {Proximal Policy Optimization Algorithms},
+  journal   = {arXiv preprint arXiv:1707.06347},
+  year      = {2017},
+}
+
+@article{schulman2015gae,
+  author    = {John Schulman and Philipp Moritz and Sergey Levine and Michael
+               I. Jordan and Pieter Abbeel},
+  title     = {High-Dimensional Continuous Control Using Generalized
+               Advantage Estimation},
+  journal   = {arXiv preprint arXiv:1506.02438},
+  year      = {2015},
+}
+
+
+% --- 6. Simulation platforms -------------------------------------
+
+@article{calheiros2011cloudsim,
+  author    = {Rodrigo N. Calheiros and Rajiv Ranjan and Anton Beloglazov
+               and C{\'e}sar A. F. De Rose and Rajkumar Buyya},
+  title     = {{CloudSim}: A Toolkit for Modeling and Simulation of Cloud
+               Computing Environments and Evaluation of Resource Provisioning
+               Algorithms},
+  journal   = {Software: Practice and Experience},
+  volume    = {41},
+  number    = {1},
+  pages     = {23--50},
+  year      = {2011},
+  doi       = {10.1002/spe.995},
+}
+
+@article{gupta2017ifogsim,
+  author    = {Harshit Gupta and Amir Vahid Dastjerdi and Soumya K. Ghosh
+               and Rajkumar Buyya},
+  title     = {{iFogSim}: A Toolkit for Modeling and Simulation of Resource
+               Management Techniques in the {Internet} of {Things}, {Edge}
+               and {Fog} Computing Environments},
+  journal   = {Software: Practice and Experience},
+  volume    = {47},
+  number    = {9},
+  pages     = {1275--1296},
+  year      = {2017},
+  doi       = {10.1002/spe.2509},
+}
+
+@inproceedings{chen2012workflowsim,
+  author    = {Weiwei Chen and Ewa Deelman},
+  title     = {{WorkflowSim}: A Toolkit for Simulating Scientific Workflows
+               in Distributed Environments},
+  booktitle = {2012 IEEE 8th International Conference on E-Science},
+  year      = {2012},
+  pages     = {1--8},
+  doi       = {10.1109/eScience.2012.6404430},
+}
+
+
+% --- 7. Energy / carbon for LLM workloads (cited in §1) ----------
+
+@article{patterson2021carbon,
+  author    = {David Patterson and Joseph Gonzalez and Quoc Le and Chen Liang
+               and Lluis-Miquel Munguia and Daniel Rothchild and David So and
+               Maud Texier and Jeff Dean},
+  title     = {Carbon Emissions and Large Neural Network Training},
+  journal   = {arXiv preprint arXiv:2104.10350},
+  year      = {2021},
+}
+
+
+% =============================================================
+% Optional additional references (not currently cited in-text)
+% =============================================================
+
+% LLaMA model (could be added in §2.1 to anchor model size choices)
+@article{touvron2023llama,
+  author    = {Hugo Touvron and Thibaut Lavril and Gautier Izacard and
+               Xavier Martinet and Marie-Anne Lachaux and Timoth{\'e}e
+               Lacroix and Baptiste Rozi{\`e}re and Naman Goyal and Eric
+               Hambro and Faisal Azhar and others},
+  title     = {{LLaMA}: Open and Efficient Foundation Language Models},
+  journal   = {arXiv preprint arXiv:2302.13971},
+  year      = {2023},
+}
+
+% Azure LLM Inference Trace 2023 (could be added in §5 setup)
+@misc{azure2023llmtrace,
+  author    = {{Microsoft Azure}},
+  title     = {{Azure LLM Inference Trace 2023}},
+  howpublished = {\url{https://github.com/Azure/AzurePublicDataset}},
+  year      = {2023},
+}

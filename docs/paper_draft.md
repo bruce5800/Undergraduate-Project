@@ -64,10 +64,11 @@ scheduling claims.
 
 Generative AI workloads, dominated by large language model (LLM)
 inference, have become the fastest-growing class of compute in
-modern data centers. A single ChatGPT-style query is estimated to
-cost roughly 10× the energy of a traditional web search [Chien'23],
-and inference now consumes more aggregate FLOPs than training
-across most production deployments [Patel'24]. As LLM-powered
+modern data centers. The energy and carbon cost of training and
+serving such models has grown by orders of magnitude over the
+past five years [Patterson'21], and inference now consumes more
+aggregate FLOPs than training across most production deployments
+[Patel'24]. As LLM-powered
 services move from research demos into latency-sensitive
 applications—voice assistants, real-time coding assistants,
 streaming summarization—the systems community has begun rethinking
@@ -1509,8 +1510,8 @@ task to the server minimizing earliest finish time.
 **Genetic Algorithms** [Holland'75] and **Particle Swarm
 Optimization** [Kennedy'95] are population-based
 metaheuristics widely applied to scheduling fitness
-landscapes [Buyya'15, Tuli'19]. Industry deployments
-typically use simpler load-balancing primitives (Round-
+landscapes. Industry deployments typically use simpler
+load-balancing primitives (Round-
 Robin, Least-Loaded, Shortest-Queue) for their operational
 predictability.
 
@@ -1579,12 +1580,14 @@ Splitwise-style deployment.
 Several open-source simulators have supported scheduling
 research: **CloudSim** [Calheiros'11] and **iFogSim**
 [Gupta'17] for general cloud-fog workloads;
-**WorkflowSim** [Chen'12] for DAG workflows. None models
-LLM-specific physics (model weights, KV cache, batching,
-memory-bandwidth floors). The recent **LLMServingSim**
-[Park'24] and **AIServ** [Lin'24] simulators target LLM
-serving but focus on intra-server batching dynamics rather
-than cross-server scheduling.
+**WorkflowSim** [Chen'12] for DAG workflows. None of these
+models the AIGC-specific physics central to our work
+(model weights, KV cache, continuous batching,
+memory-bandwidth floors). A handful of recent open-source
+projects target LLM serving simulation, but to our knowledge
+they focus on intra-server batching dynamics (modeling the
+behavior of a single inference engine) rather than
+cross-server scheduling across heterogeneous pools.
 
 Our simulator (§4.1) is, to our knowledge, the first
 open-source platform that models all five AIGC physics
