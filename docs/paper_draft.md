@@ -1007,6 +1007,18 @@ more cleanly than SLO**, since SLO is sensitive to cluster
 contention dynamics whereas energy directly reflects per-task
 efficiency.
 
+#### Fig 5 Description: SLO and Energy vs Edge Count
+
+A two-panel plot. **Left panel**: SLO attainment vs edge count
+(x ∈ {3, 5, 7}), with one line per scheduler and 95% CI error
+bars. RL leads at every topology point, with the gap widest at
+edge=3 (tight cluster) and edge=5 (canonical), narrowing at
+edge=7 as resources become abundant. **Right panel**: Energy
+per token vs edge count. RL maintains a consistent 7–9%
+separation below all baselines across all three configurations,
+visually confirming the *configuration-stability* observation
+above.
+
 ---
 
 ### 5.3 Load Sensitivity
@@ -1397,7 +1409,7 @@ from adding a second cloud GPU. *Provision compute first;
 optimize scheduling second.*
 
 **Use simple load balancers in the moderate-load regime
-(λ ≤ 2 req/s with diverse model mix).** Our Fig 5 shows
+(λ ≤ 2 req/s with diverse model mix).** Our Fig 4 shows
 that LeastLoaded and ShortestQueue achieve 78% of RL's SLO
 attainment with 0% of the training cost. For deployments
 with small operational scale or limited ML engineering
@@ -1409,7 +1421,7 @@ matter.** Across all 30 tested configurations, our AIGC-aware
 RL achieved 5–11% lower energy per token than the next-best
 baseline (§5.2, 5.3). For large-scale deployments where a
 5% energy reduction translates to meaningful annual savings
-($M-scale at hyperscaler volumes), the RL operational
+(millions of USD at hyperscaler volumes), the RL operational
 investment is justified. Similarly, RL's stronger tail TTFT
 behavior (P95 25.2s vs 28-41s for baselines at edge=5,
 λ=2) matters for interactive applications.
@@ -1546,11 +1558,16 @@ they focus on intra-server batching dynamics (modeling the
 behavior of a single inference engine) rather than
 cross-server scheduling across heterogeneous pools.
 
-Our simulator (§4.1) is, to our knowledge, the first
-open-source platform that models all five AIGC physics
-listed in §1 *with* a focus on cross-server scheduling
-decisions and *with* multi-objective (SLO + energy)
-evaluation built in. We release it with reproducibility
+To our knowledge, our simulator (§4.1) is the first
+open-source platform combining three properties:
+(i) modeling all five AIGC physics listed in §1
+(model-weight residency, KV-cache locality, continuous
+batching, memory-bandwidth floor, two-phase request
+lifecycle); (ii) focusing on cross-server scheduling
+across heterogeneous pools rather than intra-server
+batching dynamics; (iii) supporting multi-objective
+(SLO + energy) evaluation natively rather than as a
+post-hoc analysis. We release it with reproducibility
 manifests for the 30+ configurations reported in §5,
 hoping to lower the activation energy for future AIGC
 scheduling research.
@@ -1595,13 +1612,3 @@ platform we release, and a **research culture of aggressive
 joint ablation** for AIGC scheduling claims. The
 fast-moving LLM-systems landscape will reward both.
 
----
-
-## 待办事项
-
-- [ ] A 实验跑完后填 §5.2、§5.3
-- [ ] 用 ploter.py 出 Fig 4（Pareto 图）
-- [ ] §5.4 完整 ablation table 整理
-- [ ] §1 Introduction 写头一段
-- [ ] §2 Background 引用 Tuli/Decima/vLLM/Sarathi
-- [ ] §4 System Design 用 drawio 三张图

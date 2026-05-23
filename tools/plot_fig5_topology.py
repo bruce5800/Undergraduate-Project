@@ -1,15 +1,15 @@
 """
-plot_fig6_topology.py — Paper Figure 6: Topology (edge count) sensitivity
+plot_fig5_topology.py — Paper Figure 5: Topology (edge count) sensitivity
 
 Two side-by-side panels:
   (a) SLO Attainment vs edge count
   (b) Energy per Token vs edge count
 
-Five representative schedulers (matched to Fig 5 for visual consistency):
+Five representative schedulers (matched to Fig 6 for visual consistency):
   RL (ours), PSO, ShortestQueue, A3C-R2N2, GNN.
 
 Data: figs/exp2_edge3/ + figs/energy_scan2/ (edge=5) + figs/exp2_edge7/
-Output: figs/report/fig6_topology.{png,pdf}
+Output: figs/report/fig5_topology.{png,pdf}
 """
 
 import os
@@ -131,20 +131,20 @@ def main():
     )
 
     fig.suptitle(
-        "Figure 6. Topology sensitivity"
+        "Figure 5. Topology sensitivity"
         "  ·  λ=2 req/s, uniform model mix, N=30 runs, error bars = 95% CI",
         fontsize=12, fontweight="bold", y=1.01,
     )
     plt.tight_layout()
 
-    out_png = os.path.join(OUTPUT_DIR, "fig6_topology.png")
-    out_pdf = os.path.join(OUTPUT_DIR, "fig6_topology.pdf")
+    out_png = os.path.join(OUTPUT_DIR, "fig5_topology.png")
+    out_pdf = os.path.join(OUTPUT_DIR, "fig5_topology.pdf")
     plt.savefig(out_png, dpi=200, bbox_inches="tight")
     plt.savefig(out_pdf, bbox_inches="tight")
     print(f"Saved: {out_png}\nSaved: {out_pdf}")
 
     # Summary
-    print("\n=== Fig 6 SLO data ===")
+    print("\n=== Fig 5 SLO data ===")
     print(f"{'Scheduler':<22} | {'edge=3':>14} | {'edge=5':>14} | {'edge=7':>14}")
     for sched, *_, label in SCHEDULER_STYLE:
         row = " | ".join(

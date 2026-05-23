@@ -1,5 +1,5 @@
 """
-plot_fig5_load.py — Paper Figure 5: Load (λ) sensitivity
+plot_fig6_load.py — Paper Figure 6: Load (λ) sensitivity
 
 Two side-by-side panels:
   (a) SLO Attainment vs arrival rate λ
@@ -10,7 +10,7 @@ Shows 5 representative schedulers (out of 9):
   A3C-R2N2 (controlled RL baseline), GNN (alternative AIGC encoder).
 
 Data: figs/exp2_lambda{0.5,1.0,4.0,8.0}/ + figs/energy_scan2/ (λ=2)
-Output: figs/report/fig5_load.{png,pdf}
+Output: figs/report/fig6_load.{png,pdf}
 """
 
 import os
@@ -150,20 +150,20 @@ def main():
     )
 
     fig.suptitle(
-        "Figure 5. Load sensitivity"
+        "Figure 6. Load sensitivity"
         "  ·  edge=5, uniform model mix, N=30 runs, error bars = 95% CI",
         fontsize=12, fontweight="bold", y=1.01,
     )
     plt.tight_layout()
 
-    out_png = os.path.join(OUTPUT_DIR, "fig5_load.png")
-    out_pdf = os.path.join(OUTPUT_DIR, "fig5_load.pdf")
+    out_png = os.path.join(OUTPUT_DIR, "fig6_load.png")
+    out_pdf = os.path.join(OUTPUT_DIR, "fig6_load.pdf")
     plt.savefig(out_png, dpi=200, bbox_inches="tight")
     plt.savefig(out_pdf, bbox_inches="tight")
     print(f"Saved: {out_png}\nSaved: {out_pdf}")
 
     # Print summary table for paper
-    print("\n=== Fig 5 data ===")
+    print("\n=== Fig 6 data ===")
     print(f"{'Scheduler':<22} | {'λ=0.5':>14} | {'λ=1':>14} | {'λ=2':>14} | {'λ=4':>14} | {'λ=8':>14}")
     for sched, *_, label in SCHEDULER_STYLE:
         slo_row = " | ".join(
