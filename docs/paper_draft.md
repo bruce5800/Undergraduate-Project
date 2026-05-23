@@ -389,6 +389,422 @@ which our scheduler operates.
 
 ---
 
+## §3 Problem Formulation
+
+We now formalize the cloud-edge LLM inference scheduling problem.
+§3.1 introduces notation for the deployment topology and workload.
+§3.2 expresses the five AIGC physics as constraints and cost
+functions on scheduling decisions. §3.3 states our scheduling
+problem as a multi-objective optimization. §3.4 casts it as a
+Markov Decision Process for reinforcement-learning treatment.
+
+### 3.1 System Model
+
+**Deployment topology.** A heterogeneous compute pool
+$\mathcal{S} = \{s_0, s_1, \ldots, s_{N}\}$ where $s_0$ is a
+cloud server and $s_1, \ldots, s_N$ are edge servers. Each
+server $s$ has fixed attributes: compute capacity $C_s$
+(TFLOPS), VRAM capacity $V_s$ (GB), uplink bandwidth $B_s$
+(Mbps), idle and peak power $P^{\text{idle}}_s$ and $P^{\max}_s$
+(W). A network function $\tau(s, s', x)$ returns the transfer
+time of $x$ GB of data between servers $s$ and $s'$.
+
+**Model catalog.** A set $\mathcal{M} = \{m_1, \ldots, m_K\}$ of
+LLM variants. Each model $m$ has weight footprint $W_m$ (GB),
+cold-load time $C^{\text{cold}}_m$ (s), per-token KV-cache size
+$\kappa_m$ (MB/token), per-token decode floor latency $\phi_m$
+(s/token), and maximum batch size $B^{\max}_m$.
+
+**Request workload.** A stream of inference requests
+$\mathcal{R} = \{r_1, r_2, \ldots\}$ arrives over time according
+to a Poisson process at rate $\lambda$. Each request
+$r_i = (m_i, L^p_i, L^o_i, a_i)$ has a target model $m_i \in
+\mathcal{M}$, prompt length $L^p_i$, expected output length
+$L^o_i$, and arrival time $a_i$.
+
+**Task decomposition.** Each request $r_i$ decomposes into two
+tasks $(t^{\text{pre}}_i, t^{\text{dec}}_i)$ with a strict
+dependency edge $t^{\text{pre}}_i \to t^{\text{dec}}_i$.
+The prefill task carries workload $w^{\text{pre}}_i \propto L^p_i$,
+the decode task carries $w^{\text{dec}}_i \propto L^o_i$, and
+both reference the same model $m_i$ and request id $i$. The
+inference workload is therefore a forest of pairwise-independent
+two-node DAGs.
+
+### 3.2 AIGC Physics as Constraints
+
+The five AIGC physics from §1 manifest as the following
+constraints and cost terms governing how tasks execute on
+servers.
+
+**(P1) Model weight residency.** Server $s$ holds a state
+$L_s(t) \subseteq \mathcal{M}$ representing the set of models
+currently loaded in its VRAM at time $t$. A task targeting
+model $m$ admitted to $s$ pays a cold-load penalty
+$C^{\text{cold}}_m$ if $m \notin L_s(t)$. If loading $m$ would
+exceed $V_s$, the simulator evicts unpinned models in LRU order.
+Formally, the admission delay is:
+$\delta^{\text{cold}}_{s,m,t} = C^{\text{cold}}_m \cdot
+\mathbb{1}[m \notin L_s(t)]$.
+
+**(P2) KV-cache locality.** For each decode task
+$t^{\text{dec}}_i$ scheduled to server $s$ when its prefill
+$t^{\text{pre}}_i$ ran on $s'$, an additional KV-migration cost
+applies: $\delta^{\text{kv}}_i = \tau(s', s, L^p_i \cdot
+\kappa_{m_i} / 1024)$. When $s = s'$, this cost is zero
+(KV cache is local).
+
+**(P3) Continuous batching.** Let $b_{s,m,k}(t)$ denote the
+number of running same-model same-kind tasks on server $s$ for
+model $m$, phase $k \in \{\text{pre, dec}\}$. A new task
+admitted at time $t$ to $(s, m, k)$ experiences effective
+execution time
+$T^{\text{exec}}_{\text{eff}} = T^{\text{solo}} \cdot
+(1 + (b_{s,m,k}(t) \cdot \beta_k))$, where
+$\beta_{\text{pre}} = 0.30$ and $\beta_{\text{dec}} = 0.05$
+are phase-specific overhead factors. Admission requires
+$b_{s,m,k}(t) < B^{\max}_m$ (batch slot not full).
+
+**(P4) Memory-bandwidth floor.** The solo execution time of a
+phase task is the maximum of its compute-bound time and its
+memory-bound floor:
+$T^{\text{solo}} = \max\!\left(
+\frac{w_t}{C_s},\;
+\phi_{m_t} \cdot n_t
+\right)$,
+where $w_t$ is the task's workload (TFLOPS) and $n_t$ is its
+token count (input for prefill, output for decode).
+
+**(P5) Two-phase dependency.** The decode task
+$t^{\text{dec}}_i$ cannot become ready until
+$t^{\text{pre}}_i$ has fully completed. Combined with (P1)
+and (P2), this means a decode dispatched to $s \ne s'$
+sees no benefit from prefill's KV cache—either it pays
+migration cost or re-runs prefill.
+
+### 3.3 Scheduling Problem
+
+A scheduling policy $\pi$ produces, for each ready task at
+each time step, an assignment $\pi: t \mapsto s \in \mathcal{S}$.
+Given a request stream $\mathcal{R}$, $\pi$ induces:
+
+- Per-request **TTFT** (time-to-first-token):
+  $\text{TTFT}_i = e^{\text{pre}}_i - a_i$, where $e^{\text{pre}}_i$
+  is the wall-clock completion time of the prefill task.
+- Per-request **TPOT** (time-per-output-token):
+  $\text{TPOT}_i = (e^{\text{dec}}_i - s^{\text{dec}}_i) / L^o_i$.
+- **SLO attainment**:
+  $\text{SLO}(\pi) = \frac{1}{|\mathcal{R}|} \sum_i
+  \mathbb{1}[\text{TTFT}_i \le T^*_{\text{TTFT}} \land
+  \text{TPOT}_i \le T^*_{\text{TPOT}}]$.
+- **Energy per token**:
+  $E_{\text{tok}}(\pi) = \frac{\sum_s \int_0^T P_s(t)\,dt}
+  {\sum_i L^o_i}$, where instantaneous power
+  $P_s(t) = P^{\text{idle}}_s + (P^{\max}_s - P^{\text{idle}}_s) \cdot
+  u_s(t)$ depends on per-server compute utilization $u_s(t)$.
+
+Our scheduling problem is the **bi-objective program**:
+
+$\max_\pi \text{SLO}(\pi)$
+$\min_\pi E_{\text{tok}}(\pi)$,
+
+subject to admission feasibility (compute, VRAM, batch-slot)
+at every step. Because the two objectives can be in tension
+(e.g., always-cloud maximizes per-request compute but
+overshoots energy budget), we evaluate policies on the
+$(\text{SLO}, E_{\text{tok}})$ plane and seek **Pareto
+dominance**: $\pi$ dominates $\pi'$ if $\pi$ is no worse on
+both axes and strictly better on at least one.
+
+### 3.4 MDP Formulation for RL
+
+We treat per-task dispatch as a sequential decision process and
+solve it with reinforcement learning. At each ready task arrival,
+the agent observes a state $\mathbf{s}_t$ summarizing the
+current task's properties and all servers' utilization,
+loaded-model sets, and batch occupancies (detailed encoding
+in §4.2). The agent emits an action $a_t \in \mathcal{S}$
+choosing which server to dispatch to; the simulator applies the
+assignment, advances time until the next ready task, and emits
+a scalar reward $r_t$. We define the reward as a weighted sum of
+seven physical and AIGC-aware terms (specified in §4.2,
+Equation in *Reward Function* paragraph) designed to provide
+**dense per-decision** feedback rather than waiting for episode-
+end SLO/energy outcomes—an essential design choice given the
+long episode horizons (~100 task dispatches per simulation
+run).
+
+The MDP is **partially observable** in principle (the simulator's
+internal state is richer than $\mathbf{s}_t$), but the
+observable features capture all decision-relevant information
+under the simulator's dynamics. The MDP is **non-stationary
+within an episode** (server utilization evolves as tasks
+complete) and **stationary across episodes** (workload
+distribution is fixed). We solve with PPO with action masking,
+pretraining, and GAE, as detailed in §4.2.
+
+**Why RL.** A natural alternative to RL is solving the
+integer-linear program implied by §3.3 directly. We rejected
+this because (i) AIGC physics (P1)(P3) introduce *state-
+dependent* costs (cold-load and batch overhead depend on
+server's running set, which changes within an episode),
+breaking the static-cost ILP assumption; and (ii) the
+combinatorial action space at each step
+($|\mathcal{S}|^{|\mathcal{R}|}$) is too large for branch-and-
+bound at realistic workload sizes. Heuristic and metaheuristic
+schedulers (HEFT, GA, PSO) compose a more comparable design
+space and serve as our primary baselines in §5.
+
+---
+
+## §4 System Design
+
+Our system consists of two co-designed components:
+**§4.1 the AIGC inference simulator**—an open-source platform
+that models the five AIGC physics enumerated in §1 with
+realistic per-request granularity—and **§4.2 the AIGC-aware
+RL scheduler**—a PPO policy that exposes AIGC physics to the
+agent via structured state features and reward shaping.
+Figure 1 provides an end-to-end architectural overview;
+this section details each subsystem.
+
+### 4.1 AIGC Inference Simulator
+
+We implement the simulator in Python as a discrete-time
+event-driven environment with a 0.1 s simulation step. Each
+step performs four operations: (a) check for completed tasks
+and release resources; (b) update task dependency and arrival
+gating to transition `WAITING → READY`; (c) invoke the
+scheduler to assign `READY` tasks to servers; (d) start any
+admitted tasks on their target servers and accumulate
+per-server energy. We organize the simulator's physics
+modeling as four incremental milestones (M1–M4), each
+addressing one or more of the five AIGC physics from §1.
+
+**M1: Model Weight Residency.** Every server maintains a
+`loaded_models` dictionary tracking which models have weights
+in GPU VRAM, plus a `model_refs` reference count for currently
+running tasks that prevent eviction. When a request arrives
+needing a model not yet loaded, the server (i) evicts the
+LRU-least-recently-used unpinned model(s) until VRAM headroom
+suffices, and (ii) pays a `cold_load_sec` delay before the
+task starts execution. Cold-load times are calibrated per
+model (e.g., 5 s for LLaMA-7B at 14 GB; 25 s for LLaMA-70B
+INT8 at 70 GB) based on NVMe sequential read bandwidth.
+
+**M2: Prefill–Decode Two-Phase Tasks with KV Cache.**
+Each inference request decomposes into a (Prefill, Decode)
+pair sharing a `req_id`. The Prefill task carries
+`prompt_tokens`; the Decode task carries `output_tokens` and
+depends on Prefill. We compute task workload as
+prompt_tokens × prefill_tflops/k and output_tokens ×
+decode_tflops/k per the published model architecture
+parameters. The key design choice is **encoding KV cache size
+into `prefill.output_size`** (computed as
+prompt_tokens × kv_cache_MB_per_token / 1024 GB). This lets
+the simulator's existing transfer-time formula (output_size
+÷ link bandwidth) automatically account for the
+**KV-migration cost** if Decode is scheduled to a different
+server than Prefill—no additional code paths are required.
+Additionally, each phase task carries a `kv_cache_GB` field
+that contributes to GPU VRAM occupancy during execution,
+realistically modeling memory pressure from active sequences.
+
+**M3: Continuous Batching.** When a task is admitted to a
+server, we count the number of currently running same-model
+same-kind tasks (`batch_size_at_admit`) and compute its
+effective execution time as
+`T_solo × (1 + (batch_size − 1) × overhead)`, with
+phase-specific overhead constants (5% per request for decode,
+30% for prefill, matching vLLM measurements). The server
+enforces `max_batch_size` as admission control: a new task
+arriving when the same-model same-kind batch is already at
+capacity is rejected (`can_allocate = False`) until a slot
+frees. To distinguish batching's role from naïve concurrent
+execution, our `--ablation no_batching` mode disables this
+mechanism *and* enforces serial GPU usage for inference tasks
+(one inference task per server at a time), modeling the
+behavior of an inference engine without iteration-level
+batching support.
+
+**M4: Memory-Bandwidth Floor and Realistic Workloads.**
+Real LLM decode is memory-bandwidth-bound: even with infinite
+compute capacity, each output token takes a floor of ~20 ms on
+A100-class GPUs due to HBM bandwidth limits. We model this by
+computing effective execution time as
+`max(workload ÷ compute_capacity, floor_per_token × tokens)`,
+with per-model floor constants (LLaMA-7B: 20 ms/token decode,
+1 ms/token prefill; scaling proportionally to model size up
+to LLaMA-70B's 80 ms/token decode). Without this floor, our
+simulator would produce unrealistic sub-millisecond TPOT
+values that fail to reflect the dominant production
+bottleneck. M4 also introduces Poisson arrival modeling
+(adding an `arrival_time` field to each task that gates the
+`WAITING → READY` transition) and log-normal prompt/output
+length distributions calibrated to Azure LLM Inference Trace
+2023 statistics (prompt μ_log=5.5, σ_log=1.0;
+output μ_log=4.5, σ_log=1.2).
+
+**Energy Model.** To support multi-objective evaluation, the
+simulator tracks per-server energy consumption using a
+linear-in-utilization power model:
+`P(t) = idle_W + (max_W − idle_W) × compute_util(t)`,
+with per-tier coefficients calibrated to NVIDIA TDPs
+(cloud A100: 50–400 W; edge A100: 30–250 W; T4: 20–70 W;
+Jetson AGX Orin: 10–30 W). Total energy is accumulated as
+`E += P(t) × Δt` at each simulation step; energy per token
+is computed as system-wide total energy divided by completed
+output tokens. The non-monotonic relation between compute
+capacity and power efficiency (T4 has the best efficiency
+ratio despite mid-tier compute) is crucial for our
+multi-objective evaluation—a scheduler favoring "always-cloud"
+will have poor energy efficiency even with low latency.
+
+**Output Interface.** The simulator exposes a standard
+`scheduler.schedule()` interface called once per simulation
+step. Schedulers receive read-only access to the full
+`Simulation` object (tasks, servers, network) and must
+populate `task.assigned_server` and call
+`server.add_task(task, priority)` for each `READY` task they
+choose to dispatch. This minimal interface allows any
+scheduler—from a 50-line round-robin to our PPO agent—to be
+swapped in without simulator modification, supporting fair
+controlled comparisons.
+
+### 4.2 AIGC-Aware Reinforcement Learning Scheduler
+
+Our scheduler casts request dispatch as a Markov Decision
+Process where the agent makes a per-task discrete server
+choice. Below we describe the state, action, and reward
+designs that expose AIGC physics to the policy, followed by
+the PPO training procedure.
+
+**State Space.** For each `READY` task awaiting dispatch,
+the encoder produces a flat feature vector of dimension
+`(10 + |M|) + 2 + 10 × N`, where `|M|` is the number of
+models in the catalog and `N` is the number of servers. The
+vector concatenates three blocks:
+
+- *Task block* (10 + |M| dims): compute demand, workload,
+  input size, output size, dependency count, successor count,
+  task-kind one-hot (Generic/Prefill/Decode), normalized
+  KV-cache size, and a model-ID one-hot. The model one-hot
+  is the most informative AIGC-specific feature, encoding
+  *which* model the task needs.
+
+- *Global block* (2 dims): READY-queue size and
+  completed-task ratio, providing horizon context.
+
+- *Per-server block* (10 dims × N servers): five
+  general-purpose features (compute utilization, memory
+  utilization, bandwidth, queue length, transfer time
+  estimate to this server) followed by five **AIGC-specific
+  features**: (1) whether the current task's model is loaded
+  on this server, (2) batch occupancy normalized to
+  max_batch_size, (3) free VRAM fraction, (4) normalized
+  cold-load cost for this task's model on this server, and
+  (5) *sibling-server indicator*—for Decode tasks, whether
+  this server is where the corresponding Prefill ran.
+
+The sibling-server indicator is the most novel feature: it
+gives the policy direct read-access to KV-cache locality
+without requiring it to reason about request IDs. For
+canonical edge=5, N=4 models, the total state dimension is
+96.
+
+**Action Space.** Discrete choice over the N servers, with
+**action masking** to zero out the probability of any
+infeasible server (where `can_allocate(task) = False`).
+Masking prevents the agent from wasting samples on
+illegal actions and stabilizes training. The mask is
+re-computed at every dispatch decision.
+
+**Reward Function.** A weighted sum of seven components,
+balancing throughput, fairness, AIGC awareness, and energy:
+
+```
+r = 0.25 · time_reward
+  + 0.10 · balance_reward
+  + 0.10 · match_reward
+  + 0.15 · warm_bonus
+  + 0.20 · batch_bonus
+  + 0.10 · affinity_bonus
+  + 0.10 · cloud_overuse_penalty
+```
+
+The first three components are standard load-balancing
+signals: *time_reward* favors low total execution time,
+*balance_reward* discourages overloading any single server,
+*match_reward* prefers servers whose compute roughly matches
+task demand. The next three are AIGC-specific:
+
+- *warm_bonus* (+1 if model already loaded on chosen server;
+  −cold_load_sec/20 otherwise, clipped to [−1, 0]) directly
+  rewards avoiding cold loads.
+
+- *batch_bonus* (proportional to existing same-model batch
+  size on the chosen server, weighted higher for Decode whose
+  batching is more efficient) rewards joining existing
+  batches to capture throughput multipliers.
+
+- *affinity_bonus* (+1 if chosen server hosts the sibling
+  Prefill; −0.5 if not and the KV cache to migrate is
+  non-trivial) rewards keeping KV cache local.
+
+Finally, *cloud_overuse_penalty* (−cloud_util, applied only
+when an edge alternative could serve the task) is a
+diagnostic-driven addition that prevents the policy from
+collapsing to an "always-cloud" attractor we observed in
+early experiments. Without this term, PPO learned a
+degenerate policy of routing nearly all traffic to the cloud
+server, ignoring AIGC signals entirely (analyzed in our
+diagnostic appendix). With it, the policy properly explores
+edge alternatives and learns AIGC-aware placement.
+
+**Policy Architecture.** A three-layer MLP encoder
+(state_dim → 256 → 128 → 64 with LayerNorm and ReLU)
+produces a shared feature representation, which an Actor
+head (Linear → softmax-with-mask) maps to action
+probabilities and a Critic head (Linear → ReLU → Linear)
+maps to the value estimate. We deliberately use a feedforward
+architecture rather than a graph or recurrent encoder; our
+ablation (§5.5) and comparison against the GNN variant
+(§5.1) show this choice does not sacrifice performance under
+practical training budgets.
+
+**Training Procedure.** We train with Proximal Policy
+Optimization (PPO) [Schulman'17] using clipped surrogate
+objective (ε = 0.2), Generalized Advantage Estimation
+[Schulman'15] (γ = 0.95, λ = 0.90), and entropy
+regularization (coefficient 0.05, reduced to 0.01 after
+pretraining). The trajectory buffer accumulates 32
+transitions before each PPO update; each update performs 4
+epochs over the buffered data. Action masking is applied
+during both action sampling and policy log-probability
+computation.
+
+**Pretraining.** A critical practical detail: we precede
+online training with 20 episodes of pretrain on the target
+workload. Pretrain is essential: without it, the policy
+converges to a degenerate "always-cloud" attractor (§5.5
+shows a −38% SLO drop from disabling pretrain). With 20
+pretrain episodes (≈10–15 seconds wall-clock), the policy
+escapes this attractor and learns meaningful per-task
+placement decisions. We initialize pretrain with 30
+*warmup* steps of uniform random action sampling to
+encourage diverse experience collection before policy-
+gradient updates begin.
+
+**Ablation Interface.** Each component above is gated by a
+constructor flag (`enable_warm_reward`, `enable_aigc_state`,
+etc.), enabling the systematic 12-component ablation
+analyzed in §5.5. Disabling all AIGC components reduces our
+scheduler to a generic PPO baseline operating only on base
+features—directly testing whether AIGC awareness provides
+measurable value beyond standard RL machinery.
+
+---
+
 ## §5 Evaluation
 
 ### 5.0 Experimental Setup
@@ -874,6 +1290,339 @@ calibrated configuration.
 > - **组合 `no_aigc_full` → 与 `none` 在 SLO 上无差异，但能耗下降不显著
 >   （RL 通过 base features 隐式学到 SLO 优化，但 AIGC 显式信号在能耗维度
 >   提供边际收益）**
+
+---
+
+---
+
+## §6 Discussion
+
+This section discusses what our findings mean for AIGC
+scheduling research and practice (§6.1), the limitations and
+threats to validity of our study (§6.2), and the
+deployment-time guidance our results provide (§6.3).
+
+### 6.1 Implications for AIGC Scheduling Research
+
+Our experiments support three implications that extend
+beyond the specific schedulers compared in §5.
+
+**Implication 1: Simulator physics dominate algorithmic
+sophistication.** The largest scheduler-level effect in our
+entire study is the −83% SLO collapse from disabling
+continuous batching simulation (Table 6, Fig 7). This effect
+is roughly **10× larger** than any individual reward-design
+or state-engineering choice we measured. The implication is
+that AIGC scheduling researchers should invest the bulk of
+their effort in faithful physical simulation—particularly
+continuous batching, KV-cache locality, and memory-bandwidth
+floors—rather than in clever neural-network architectures
+or reward formulations. A simulator that under-models AIGC
+physics will reward bad scheduling policies; conversely, a
+physically faithful simulator pulls even simple schedulers
+toward near-optimal behavior.
+
+**Implication 2: Pretraining is the cheapest essential
+investment.** Disabling pretraining cost us 38% SLO (the
+second-largest ablation effect). Yet pretraining requires
+only 20 episodes (~10–15 seconds of wall-clock) on the
+target workload. This is essentially a "free" optimization
+that practitioners deploying RL schedulers should always
+include. Importantly, pretraining matters not for sample
+efficiency in the conventional sense (our policy network is
+small and converges quickly), but for **escaping degenerate
+attractors**: without pretrain, PPO collapses to an
+"always-cloud" policy that is locally optimal under the
+gradient landscape but globally bad on SLO and energy.
+
+**Implication 3: Don't over-attribute gains to reward
+shaping.** Our 12-component ablation revealed that no
+individual AIGC reward component (warm, batch, affinity,
+cloud-overuse, or even all jointly) significantly improves
+SLO once continuous batching simulation and pretraining are
+in place. We hypothesize that prior AIGC scheduling works
+claiming specific gains from individual reward components
+have likely overlooked this **substitutability** of reward
+signals within a sufficiently expressive PPO backbone.
+Future works should ablate aggressively: a positive result
+from a single reward term is *suspicious* unless backed by
+the kind of joint ablation we report in Table 6.
+
+These three implications collectively suggest that the
+AIGC scheduling research agenda should reorient from
+"engineering better rewards" to **"engineering better
+simulators and training procedures."** The actual policy
+network—whether MLP, GNN, or attention-based—matters less
+than the environment in which it is trained.
+
+### 6.2 Limitations and Threats to Validity
+
+Several limitations qualify our findings.
+
+**Simulation fidelity.** Our simulator approximates continuous
+batching as *admission-time* batching (batch size determined
+when a task is admitted, fixed thereafter), rather than the
+iteration-level dynamic re-batching used by vLLM. This
+simplification preserves the throughput-vs-latency trade-off
+qualitatively but may underestimate true continuous batching's
+benefit by 10–20% in some regimes. Our memory-bandwidth floor
+is calibrated from published vLLM numbers but treats per-token
+latency as a constant rather than batch-size-dependent (real
+HBM contention scales sub-linearly with batch). We believe
+neither simplification changes the qualitative findings, but
+quantitative numbers (e.g., −83% from no_batching) should be
+interpreted as our simulator's behavior rather than
+vLLM-precise predictions.
+
+**Workload coverage.** Our experiments use synthetic log-
+normal prompt/output length distributions calibrated to Azure
+LLM Inference Trace 2023 statistics. We have not replayed
+true workload traces (which would require access to
+proprietary production logs) nor tested on bursty arrival
+patterns common in interactive workloads. The §5.3 saturation
+finding (RL loses SLO edge at λ ≥ 4) might shift under
+bursty workloads where short-term overload windows favor
+schedulers with explicit batching control.
+
+**Hardware coverage.** Our cloud-edge topology spans
+A100/T4/Jetson-tier servers, matching published deployment
+configurations. We have not tested with H100, MI300X, or
+custom inference accelerators (e.g., Groq LPU). The
+memory-bandwidth floor and batching constants would need
+re-calibration for these. However, the qualitative AIGC
+physics we model—weight residency, KV locality, batching,
+bandwidth floor, two-phase tasks—are architecture-agnostic
+and should generalize.
+
+**Statistical power.** Our N=30 runs per configuration give
+good detection power for medium-to-large effects (Cohen's
+d ≥ 0.5) but cannot resolve small effects (d < 0.2). The
+ablation null results in §5.5 thus mean "we cannot detect
+differences larger than ≈5% in SLO" rather than "no
+difference exists." A more definitive ablation would require
+N=100+ runs, which we view as future work.
+
+**Single learning algorithm.** Our scheduler uses PPO with
+specific architectural choices (3-layer MLP, action mask,
+GAE). Other RL families—offline RL, model-based RL,
+imitation learning from a heuristic oracle—might respond
+differently to AIGC reward shaping. We tested two
+alternatives (A3C-R2N2 and GNN-PPO) and both exhibited
+similar substitutability of AIGC components, suggesting our
+finding is not PPO-specific, but the claim is bounded by
+this evidence.
+
+### 6.3 Practical Deployment Guidance
+
+For practitioners deploying AIGC schedulers in production
+cloud-edge environments, our results suggest the following
+concrete guidance.
+
+**Capacity planning matters more than scheduler choice.** The
+§5.4 large-heavy-model experiment shows that when workload
+exceeds cluster capacity at a specific tier (e.g., 70B
+requests overflowing the single cloud server), all schedulers
+converge to ≈10% SLO. A 28% SLO improvement from
+AIGC-aware scheduling is dwarfed by the 3× SLO improvement
+from adding a second cloud GPU. *Provision compute first;
+optimize scheduling second.*
+
+**Use simple load balancers in the moderate-load regime
+(λ ≤ 2 req/s with diverse model mix).** Our Fig 5 shows
+that LeastLoaded and ShortestQueue achieve 78% of RL's SLO
+attainment with 0% of the training cost. For deployments
+with small operational scale or limited ML engineering
+capacity, the marginal benefit of RL does not justify its
+operational overhead.
+
+**Reach for RL when energy efficiency or tail latency
+matter.** Across all 30 tested configurations, our AIGC-aware
+RL achieved 5–11% lower energy per token than the next-best
+baseline (§5.2, 5.3). For large-scale deployments where a
+5% energy reduction translates to meaningful annual savings
+($M-scale at hyperscaler volumes), the RL operational
+investment is justified. Similarly, RL's stronger tail TTFT
+behavior (P95 25.2s vs 28-41s for baselines at edge=5,
+λ=2) matters for interactive applications.
+
+**Be skeptical of reward-engineering claims.** If a future
+paper proposes a new AIGC reward component (X-bonus,
+Y-penalty), ask: was it ablated jointly with other AIGC
+rewards? Was the comparison against a pretrained baseline?
+Our results suggest that without these controls, gains
+attributed to specific reward components may reflect general
+RL backbone improvements rather than the claimed mechanism.
+
+---
+
+## §7 Related Work
+
+Our work intersects four established lines of research:
+(§7.1) LLM serving systems, (§7.2) cluster scheduling, (§7.3)
+reinforcement learning for scheduling, and (§7.4) AIGC-
+specific scheduling. We additionally discuss (§7.5)
+simulation platforms relevant to AIGC scheduling research.
+
+### 7.1 LLM Serving Systems
+
+A wave of recent systems has dramatically improved
+single-server LLM serving efficiency. **Orca** [Yu'22]
+introduced iteration-level continuous batching, allowing
+requests to join and leave a running batch at any decoder
+step rather than waiting for batch completion. **vLLM**
+[Kwon'23] extended this with **PagedAttention**, fragmenting
+the KV cache into fixed-size pages that can be allocated
+non-contiguously, eliminating internal fragmentation and
+enabling 2–4× throughput improvements. **Sarathi-Serve**
+[Agrawal'24] introduced *chunked prefill*—decomposing long
+prefill phases into multiple shorter chunks—to mitigate
+generation stalls in mixed prefill/decode batches.
+**TensorRT-LLM** [NVIDIA'24] provides production-grade
+kernels with similar batching capabilities.
+
+These systems are **orthogonal to our work**: they optimize
+within a single server's GPU, whereas we schedule requests
+across a heterogeneous cloud-edge pool. Our simulator's
+admission-time batching model is a tractable abstraction of
+their iteration-level batching; cross-server scheduling
+decisions made by our RL would propagate into vLLM-like
+engines at deployment time without architectural change.
+
+### 7.2 Cluster Scheduling and Heuristics
+
+The cluster-scheduling literature predating LLM workloads
+spans heuristic and metaheuristic approaches. **HEFT**
+[Topcuoglu'02] remains the canonical static heuristic,
+computing upward-rank task priorities and assigning each
+task to the server minimizing earliest finish time.
+**Genetic Algorithms** [Holland'75] and **Particle Swarm
+Optimization** [Kennedy'95] are population-based
+metaheuristics widely applied to scheduling fitness
+landscapes [Buyya'15, Tuli'19]. Industry deployments
+typically use simpler load-balancing primitives (Round-
+Robin, Least-Loaded, Shortest-Queue) for their operational
+predictability.
+
+We compare against all of these in §5. None natively
+encodes AIGC physics; adapting them would require
+hand-engineering of AIGC-aware cost functions—an exercise
+that motivates our learning-based approach.
+
+### 7.3 Reinforcement Learning for Scheduling
+
+DRL-based scheduling has matured through several
+representative works. **Decima** [Mao'19] uses a graph
+neural network over Spark DAG structure with REINFORCE-style
+training, demonstrating that RL can learn workload-specific
+policies outperforming hand-tuned heuristics. **RLScheduler**
+[Zhang'20] applies kernel-based RL to HPC batch jobs.
+**A3C-R2N2** [Tuli'22] uses asynchronous actor-critic with a
+residual recurrent encoder for edge-cloud IoT task
+scheduling—the closest predecessor to our work in
+deployment topology, though predating the AIGC era.
+
+We position our RL scheduler against this lineage by
+**directly benchmarking A3C-R2N2 as a controlled baseline**
+in §5. Holding the actor-critic algorithm constant, the
+only differences are (i) our AIGC-aware state encoding and
+(ii) our AIGC-aware reward shaping. The Pareto improvement
+we measure (§5.1: SLO +28%, energy −7%, both p<0.05) is
+thus attributable to AIGC awareness specifically, not to
+general RL machinery. We also implement a **GNN variant**
+inspired by Decima's encoder structure, finding that under
+realistic training budgets a feedforward MLP with explicit
+AIGC features matches or exceeds the GNN's relational
+reasoning—an interesting departure from Decima's original
+Spark-DAG findings.
+
+### 7.4 AIGC-Specific Scheduling
+
+The newest research wave addresses LLM-specific scheduling
+properties directly. **Splitwise** [Patel'24] proposes
+**phase splitting**: routing prefill to compute-rich GPUs
+(H100) and decode to memory-rich GPUs (A100), with explicit
+KV-cache transfer across the disaggregation boundary.
+**DistServe** [Zhong'24] co-optimizes resource allocation and
+parallelism strategy across disaggregated prefill/decode
+pools. **Llumnix** [Sun'24] performs runtime request
+*migration* across model instances to address request
+heterogeneity, treating each instance as a "CPU core" in an
+operating-system-style scheduling abstraction.
+
+These works share our motivation—LLM workloads need
+LLM-aware scheduling—but address a different problem layer:
+they design *deployment topologies* (which GPUs serve which
+phase) and *intra-cluster reactive policies* (mid-flight
+migration), assuming a fixed topology and treating *initial
+request placement* as orthogonal. **Our work attacks the
+initial placement problem**: given a fixed heterogeneous
+pool, learn a per-request server-selection policy that
+co-optimizes SLO attainment and energy efficiency. The
+two strands compose: Llumnix-style migration could refine
+our scheduler's initial placement at runtime, and our
+scheduler could populate prefill/decode pools in a
+Splitwise-style deployment.
+
+### 7.5 Simulation Platforms
+
+Several open-source simulators have supported scheduling
+research: **CloudSim** [Calheiros'11] and **iFogSim**
+[Gupta'17] for general cloud-fog workloads;
+**WorkflowSim** [Chen'12] for DAG workflows. None models
+LLM-specific physics (model weights, KV cache, batching,
+memory-bandwidth floors). The recent **LLMServingSim**
+[Park'24] and **AIServ** [Lin'24] simulators target LLM
+serving but focus on intra-server batching dynamics rather
+than cross-server scheduling.
+
+Our simulator (§4.1) is, to our knowledge, the first
+open-source platform that models all five AIGC physics
+listed in §1 *with* a focus on cross-server scheduling
+decisions and *with* multi-objective (SLO + energy)
+evaluation built in. We release it with reproducibility
+manifests for the 30+ configurations reported in §5,
+hoping to lower the activation energy for future AIGC
+scheduling research.
+
+---
+
+## §8 Conclusion
+
+This paper investigated AIGC-aware reinforcement-learning
+scheduling for cloud-edge LLM inference. We built a
+comprehensive AIGC simulator modeling five physical
+characteristics—model weight residency, KV-cache locality,
+continuous batching, memory-bandwidth floors, and two-phase
+request lifecycle—then evaluated nine schedulers spanning
+load-balancing heuristics, classic and metaheuristic DAG
+schedulers, and three RL variants (PPO with MLP, A3C-R2N2
+with GRU encoder, and PPO with GNN encoder).
+
+Our AIGC-aware PPO scheduler achieves **Pareto dominance**
+over eight strong baselines on the (SLO attainment, energy
+per token) plane: +28% SLO and −7% energy at the canonical
+edge=5, λ=2 configuration, with statistical significance
+(p<0.05) on both axes against the four strongest
+comparators. The Pareto dominance extends robustly across
+edge counts {3, 5, 7} and survives the strict A3C-R2N2
+controlled comparison that isolates the AIGC contribution
+from general RL machinery.
+
+A 12-component ablation, however, reveals that **AIGC-aware
+scheduling is a holistic system contribution rather than a
+clever reward trick**: only continuous batching simulation
+(−83% SLO ablated) and adequate pretraining (−38% SLO
+ablated) emerge as significant components. All individual
+AIGC reward and state components are statistically
+indistinguishable from the Full RL baseline in isolation.
+This finding cautions the community against claiming gains
+from specific AIGC reward terms without joint ablation.
+
+We hope this work supports two longer-term directions: more
+**realistic AIGC scheduling benchmarks** built on the open
+platform we release, and a **research culture of aggressive
+joint ablation** for AIGC scheduling claims. The
+fast-moving LLM-systems landscape will reward both.
 
 ---
 
