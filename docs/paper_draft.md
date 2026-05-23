@@ -47,6 +47,326 @@ robustness in long-tail latency and energy efficiency.
 
 ---
 
+---
+
+## §1 Introduction
+
+Generative AI workloads, dominated by large language model (LLM)
+inference, have become the fastest-growing class of compute in
+modern data centers. A single ChatGPT-style query is estimated to
+cost roughly 10× the energy of a traditional web search [Chien'23],
+and inference now consumes more aggregate FLOPs than training
+across most production deployments [Patel'24]. As LLM-powered
+services move from research demos into latency-sensitive
+applications—voice assistants, real-time coding assistants,
+streaming summarization—the systems community has begun rethinking
+how inference workloads should be **scheduled** across heterogeneous
+compute pools.
+
+This paper studies **cloud-edge collaborative LLM inference
+scheduling**, a deployment paradigm gaining traction for three
+reasons: **(i) cost**, by serving common-case queries on cheaper
+edge accelerators while reserving cloud GPUs for tail requests;
+**(ii) privacy**, by keeping prompt data on-premises whenever
+possible; and **(iii) tail latency**, by amortizing first-token
+latency through edge proximity. The scheduling problem—deciding
+which server should serve each request—now becomes a critical
+performance lever, distinct from intra-server batching engines like
+vLLM [Kwon'23], Orca [Yu'22], and Sarathi-Serve [Agrawal'24].
+
+### What makes LLM inference scheduling different
+
+Existing cluster schedulers (HEFT, GA, PSO, and learning-based
+variants like Decima [Mao'19] and RLScheduler [Zhang'20]) were
+designed for generic DAG workloads such as Spark jobs or HPC
+batch tasks. They do not model the five physical characteristics
+that fundamentally distinguish LLM inference:
+
+1. **Model weight residency.** LLM weights (14–70 GB for
+   LLaMA-7B/13B/70B at FP16/INT8) live persistently in GPU memory.
+   Switching models incurs cold-load cost of 5–60 seconds—orders
+   of magnitude larger than any per-request computation.
+
+2. **KV-cache locality.** Each request's KV cache—built during
+   prefill, consumed during decode—is bound to the GPU where
+   prefill ran. Migrating KV across servers costs hundreds of
+   MB of data movement per request, often dominating decode
+   latency.
+
+3. **Continuous batching.** vLLM-style iteration-level batching
+   serves N same-model requests in (1 + (N − 1) × overhead) × T_solo
+   time, providing throughput speedups of 5–8×. Crucially, this
+   benefit only materializes when the scheduler co-locates
+   same-model requests on the same server.
+
+4. **Memory-bandwidth-bound decode.** Unlike prefill (compute-
+   bound), decode is bound by HBM memory bandwidth. Decode latency
+   per token is approximately 20 ms on A100-class GPUs regardless
+   of compute capacity, meaning that "throw more compute" does not
+   accelerate decode beyond this floor.
+
+5. **Two-phase request lifecycle.** Each inference request
+   decomposes into (Prefill → Decode) with strict dependency
+   and shared KV state. This violates the assumption of
+   independent stages baked into most DAG schedulers.
+
+The combination of these five physics creates scheduling
+trade-offs absent from generic workloads: e.g., consolidating
+same-model requests on one server (for batching) versus spreading
+to avoid contention; placing decode on a fast-but-distant server
+(low compute time) versus its sibling prefill server (no KV
+migration). **A scheduler that ignores AIGC physics cannot
+exploit these trade-offs**, leaving substantial efficiency on the
+table.
+
+### Why naïve approaches fail
+
+A natural hypothesis is that an off-the-shelf RL scheduler with
+sufficient training would *implicitly* learn AIGC-aware behavior
+from base features (compute capacity, queue length, memory
+utilization). We initially set out to test exactly this hypothesis.
+
+Our empirical journey reveals a more subtle picture (Figure 4):
+
+- Generic load-balancing baselines (LeastLoaded, ShortestQueue),
+  optimal-DAG heuristics (HEFT, GA, PSO), and even modern DRL
+  baselines (A3C-R2N2 [Tuli'22], GNN [Mao'19]-style) all cluster
+  in the same Pareto region: SLO attainment around 21–24% and
+  energy efficiency around 2.8–3.0 J/token.
+
+- Our AIGC-aware PPO scheduler, trained with the same algorithmic
+  backbone as A3C-R2N2 but with explicit AIGC state features and
+  reward shaping, achieves a **distinctly better Pareto point**:
+  SLO 30.2% (+28% relative) and energy 2.61 J/token (−7% relative),
+  both statistically significant (p<0.05 against all four strong
+  baselines).
+
+- However, our 12-component ablation (Table 6, Figure 7) reveals a
+  paradox: removing any single AIGC component (warm reward, batch
+  reward, affinity reward, AIGC state features, even all of them
+  jointly) leaves performance essentially unchanged. Only
+  Continuous Batching simulation and adequate Pretraining stand
+  out as significant components.
+
+### Reconciliation and contributions
+
+These observations are reconciled by recognizing that **AIGC-aware
+scheduling is a holistic system contribution, not a clever reward
+component**. Once a scheduler has (i) continuous batching physics
+in its environment, (ii) adequate pretraining samples, and (iii)
+some AIGC awareness in either state or reward, the PPO backbone
+extracts equivalent signal from any of the AIGC priors—they are
+mutually substitutable in practice. The Pareto improvement is
+real, but it comes from the *combination*, not from individual
+reward tricks.
+
+This paper makes four contributions:
+
+**(C1) An AIGC inference simulation platform** (M1–M4 milestones)
+that models the five physical characteristics described above:
+model weight residency with LRU eviction (M1), two-phase
+Prefill/Decode tasks with KV-cache memory accounting (M2),
+admission-time continuous batching (M3), and memory-bandwidth
+floors calibrated to vLLM measurements (M4). The platform is
+open-sourced with reproducibility manifests.
+
+**(C2) An AIGC-aware PPO scheduler** (RL) that exposes AIGC
+physics to the policy via state features (loaded-model
+indicator, batch occupancy, sibling-server affinity, KV-cache
+size) and reward shaping (warm bonus, batch bonus, affinity
+bonus, cloud-overuse penalty). The scheduler achieves
+**Pareto dominance** over eight strong baselines in SLO
+attainment and energy efficiency.
+
+**(C3) A systematic 12-component ablation study** revealing
+which AIGC abstractions actually contribute. The striking
+null result—that no single AIGC reward or state component
+is individually significant—suggests prior works claiming
+specific AIGC reward tricks should ablate aggressively before
+attributing gains to specific designs.
+
+**(C4) An empirical "regime" characterization** showing that
+AIGC-aware RL achieves strict Pareto dominance only in the
+**moderate-load operating regime** (λ ∈ [1, 2] req/s with
+uniform model mix), while maintaining a robust 5–11% energy
+efficiency advantage across all 30 tested configurations. This
+nuanced finding contradicts simpler "always wins" claims common
+in DRL scheduling literature and provides actionable guidance
+for AIGC scheduling deployment.
+
+The rest of this paper is organized as follows: §2 reviews LLM
+inference and cloud-edge scheduling background; §3 formalizes the
+scheduling problem with the five AIGC physics; §4 details our
+simulator design (§4.1) and AIGC-aware RL scheduler (§4.2); §5
+reports our experimental evaluation; §6 discusses limitations and
+implications; §7 surveys related work; §8 concludes.
+
+---
+
+## §2 Background
+
+This section provides the background needed to understand the
+AIGC physics introduced in §1 and the system design in §4.
+We first sketch LLM inference (§2.1) and the continuous-batching
+serving model (§2.2), then describe cloud-edge collaborative
+deployment (§2.3), and finally summarize the scheduling
+approaches our work builds on or contrasts with (§2.4).
+
+### 2.1 LLM Inference: Prefill, Decode, KV Cache
+
+Modern LLMs are decoder-only Transformers [Vaswani'17, Brown'20]
+producing one output token at a time given a textual prompt.
+Inference proceeds in two distinct phases that have markedly
+different hardware characteristics:
+
+**Prefill** is invoked once per request: it ingests the entire
+prompt (of length L_p tokens) through a forward pass in
+parallel, producing the first output token and—critically—an
+intermediate **key-value cache** (KV cache) for each
+Transformer layer. Prefill compute scales as O(L_p · d)
+multiply-accumulate operations and saturates GPU compute
+utilization for prompts longer than a few dozen tokens.
+
+**Decode** is then invoked iteratively, once per output token,
+to generate the remaining L_o tokens. Each decode step
+re-uses the stored KV cache plus one new token's worth of
+input, producing one new token and extending the KV cache by
+one entry per layer. Each decode step is fast (~10–80 ms on
+A100-class GPUs), but the *sequence* of L_o steps dominates
+end-to-end request latency for long generations.
+
+The KV cache is large (≈0.5–2.5 MB per token per Transformer
+layer for LLaMA-class models) and grows monotonically with each
+decode step. For a 1000-token conversation on LLaMA-13B, the
+KV cache reaches roughly 800 MB—often larger than the
+activation memory of a single forward pass. **Critically, the
+KV cache is bound to the GPU where prefill executed**; serving
+the corresponding decode steps on a different GPU requires
+either copying hundreds of MB across the network (expensive)
+or re-running prefill (wasteful).
+
+Beyond the standard Transformer LLMs that are our focus,
+AIGC workloads also include text-to-image diffusion models
+(Stable Diffusion XL) whose inference pattern—iterative
+denoising steps invoking the same U-Net—is structurally
+different but shares the model-residency and batching
+characteristics that motivate our work.
+
+### 2.2 Continuous Batching and Modern Serving Systems
+
+Throughput-oriented LLM serving systems exploit a key
+optimization: **batching same-model requests into a shared
+forward pass**. With B requests in a batch, each decode step
+takes T_solo × (1 + (B − 1) × overhead) wall-clock time
+rather than B × T_solo, providing a 5–8× throughput speedup
+at modest per-request latency cost. The decode-phase batching
+overhead is typically <5% per added request because decode is
+memory-bandwidth-bound; the prefill-phase overhead is higher
+(~30%) because prefill is compute-bound and harder to fuse.
+
+The breakthrough enabling efficient batching at scale is
+**continuous (iteration-level) batching**, introduced by
+Orca [Yu'22] and refined by vLLM [Kwon'23] and Sarathi-Serve
+[Agrawal'24]. Continuous batching dynamically recomposes the
+running batch at every decoder iteration: requests that have
+just finished are evicted, and queued requests can join
+mid-flight without waiting for the entire batch to drain.
+vLLM's PagedAttention [Kwon'23] additionally fragments the
+KV cache into pages of contiguous tokens, allowing GPU memory
+to absorb more concurrent sequences without external
+fragmentation.
+
+These engine-level optimizations have transformed
+single-server LLM serving but **only operate within one
+server**. The question of *which server should serve a given
+request*—the focus of this paper—is left to an upstream
+scheduler.
+
+### 2.3 Cloud-Edge Collaborative LLM Deployment
+
+Production LLM services increasingly deploy across
+heterogeneous compute pools spanning cloud and edge
+infrastructure. A typical topology includes:
+
+- **One or more cloud servers** equipped with high-end
+  accelerators (e.g., A100/H100, 80+ GB VRAM) capable of
+  hosting the largest models (LLaMA-70B INT8 ≈ 70 GB) and
+  serving high-throughput batches.
+
+- **A pool of heterogeneous edge servers** ranging from
+  data-center A100 nodes through workstation-class T4 GPUs to
+  embedded Jetson Orin devices. Edge nodes have smaller VRAM
+  (16–64 GB), lower compute (10–50 TFLOPS), and lower power
+  draw (30–250 W TDP). Smaller LLaMA-7B/13B variants can
+  comfortably reside on mid-tier edge nodes; larger models
+  cannot.
+
+- **A network fabric** with cloud-edge round-trip latency of
+  30–65 ms and edge-edge latency of 8–23 ms, modeled after
+  typical regional WAN and metropolitan LAN deployments.
+
+The cloud-edge paradigm is motivated by three economic forces:
+**(i) latency** — edge servers reduce first-token latency for
+geographically proximate users; **(ii) cost** — edge GPUs are
+1–10× cheaper per FLOP and 2–10× lower power than cloud
+A100/H100 instances; **(iii) data sovereignty** — many
+enterprises restrict prompt data from leaving local
+infrastructure. Splitwise [Patel'24] and DistServe [Zhong'24]
+have recently argued for disaggregating prefill from decode
+across machines of different generations to exploit hardware
+heterogeneity; we share their premise but explore the
+*scheduling* question they leave open: given a fixed
+heterogeneous pool, where should each request go?
+
+### 2.4 Scheduling Approaches: A Brief Survey
+
+Cloud-edge scheduling has historically been addressed by
+three families of algorithms, none of which natively encode
+AIGC physics:
+
+**Heuristic schedulers.** HEFT (Heterogeneous Earliest Finish
+Time) [Topcuoglu'02] computes a per-task upward-rank
+priority and assigns each task to the server minimizing
+estimated EFT under a fixed cost model. Round-Robin,
+Least-Loaded, and Shortest-Queue are simpler load-balancing
+heuristics popular in industry. These approaches treat tasks
+as independent black boxes; they cannot, for example, prefer
+a server that has the requested model already loaded.
+
+**Metaheuristic search.** Genetic Algorithms [Holland'75] and
+Particle Swarm Optimization [Kennedy'95] perform population-
+based search over candidate assignments under a designer-
+specified fitness function. They are effective when the fitness
+landscape is well-shaped but suffer from manual tuning of the
+fitness function—and adding "AIGC physics" would require
+hand-engineering additional fitness terms, which is precisely
+the design we automate.
+
+**Learning-based schedulers.** Decima [Mao'19] proposes
+GNN-based RL for Spark DAG scheduling, demonstrating that
+neural policies can outperform hand-tuned heuristics under
+realistic workloads. RLScheduler [Zhang'20] applies similar
+ideas to HPC batch jobs. Most relevantly to our work,
+A3C-R2N2 [Tuli'22] uses asynchronous actor-critic with a
+residual recurrent encoder for *generic* edge-cloud task
+scheduling—but it predates the LLM era and includes no AIGC
+priors. Our scheduler builds on this lineage but introduces
+AIGC-aware state and reward components and contrasts directly
+against an A3C-R2N2 baseline to isolate the AIGC contribution.
+
+A complementary line of work focuses on within-server LLM
+optimization rather than cross-server scheduling: Splitwise
+[Patel'24] disaggregates prefill and decode onto different GPU
+generations; DistServe [Zhong'24] co-optimizes resource
+allocation and parallelism; Llumnix [Sun'24] performs runtime
+request migration across model instances. These efforts are
+orthogonal to scheduler design—they could be deployed inside
+any of the server pools our scheduler manages—and we treat
+their batching and migration assumptions as the substrate on
+which our scheduler operates.
+
+---
+
 ## Section Outline
 
 | § | Section | 已写 | 主要数据/图 |
