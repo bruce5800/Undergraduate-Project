@@ -1,0 +1,174 @@
+% =============================================================
+% §6 Discussion
+% =============================================================
+\section{Discussion}
+\label{sec:discuss}
+
+This section discusses what our findings mean for AIGC
+scheduling research and practice
+(\S\ref{sec:implications}), the limitations and threats to
+validity of our study (\S\ref{sec:limitations}), and the
+deployment-time guidance our results provide
+(\S\ref{sec:guidance}).
+
+\subsection{Implications for AIGC Scheduling Research}
+\label{sec:implications}
+
+Our experiments support three implications that extend beyond
+the specific schedulers compared in \S\ref{sec:eval}.
+
+\textbf{Implication 1: Simulator physics dominate algorithmic
+sophistication.} The largest scheduler-level effect in our
+entire study is the $-83\%$ \slo{} collapse from disabling
+continuous batching simulation
+(Table~\ref{tab:ablation}, Fig.~\ref{fig:ablation}). This
+effect is roughly $10\times$ larger than any individual
+reward-design or state-engineering choice we measured. The
+implication is that AIGC scheduling researchers should invest
+the bulk of their effort in faithful physical
+simulation---particularly continuous batching, KV-cache
+locality, and memory-bandwidth floors---rather than in clever
+neural-network architectures or reward formulations. A
+simulator that under-models AIGC physics will reward bad
+scheduling policies; conversely, a physically faithful
+simulator pulls even simple schedulers toward near-optimal
+behavior.
+
+\textbf{Implication 2: Pretraining is the cheapest essential
+investment.} Disabling pretraining cost us $38\%$ \slo{} (the
+second-largest ablation effect, $p<0.001$). Yet pretraining
+requires only 20 episodes ($\sim$10--15 seconds of wall-clock)
+on the target workload. This is essentially a ``free''
+optimization that practitioners deploying RL schedulers should
+always include. Importantly, pretraining matters not for
+sample efficiency in the conventional sense (our policy
+network is small and converges quickly), but for
+\textbf{escaping locally optimal regions} of the policy
+space---analogous to the ``always-cloud'' attractor we
+documented in our diagnostic process that earlier
+configurations exhibited before we introduced both extended
+pretraining and the cloud-overuse penalty.
+
+\textbf{Implication 3: Don't over-attribute gains to reward
+shaping.} Our 12-component ablation revealed that no
+individual AIGC reward component (warm, batch, affinity,
+cloud-overuse, or even all jointly) significantly improves
+\slo{} once continuous batching simulation and pretraining are
+in place. We hypothesize that prior AIGC scheduling works
+claiming specific gains from individual reward components
+have likely overlooked this \textbf{substitutability} of
+reward signals within a sufficiently expressive PPO backbone.
+Future works should ablate aggressively: a positive result
+from a single reward term is \emph{suspicious} unless backed
+by the kind of joint ablation we report in
+Table~\ref{tab:ablation}.
+
+These three implications collectively suggest that the AIGC
+scheduling research agenda should reorient from ``engineering
+better rewards'' to \textbf{``engineering better simulators
+and training procedures.''} The actual policy
+network---whether MLP, GNN, or attention-based---matters less
+than the environment in which it is trained.
+
+\subsection{Limitations and Threats to Validity}
+\label{sec:limitations}
+
+Several limitations qualify our findings.
+
+\textbf{Simulation fidelity.} Our simulator approximates
+continuous batching as \emph{admission-time} batching (batch
+size determined when a task is admitted, fixed thereafter),
+rather than the iteration-level dynamic re-batching used by
+vLLM. This simplification preserves the
+throughput-vs-latency trade-off qualitatively but may
+underestimate true continuous batching's benefit by 10--20\%
+in some regimes. Our memory-bandwidth floor is calibrated
+from published vLLM numbers but treats per-token latency as a
+constant rather than batch-size-dependent (real HBM
+contention scales sub-linearly with batch). We believe
+neither simplification changes the qualitative findings, but
+quantitative numbers (e.g., $-83\%$ from \texttt{no\_batching})
+should be interpreted as our simulator's behavior rather than
+vLLM-precise predictions.
+
+\textbf{Workload coverage.} Our experiments use synthetic
+log-normal prompt/output length distributions calibrated to
+Azure LLM Inference Trace 2023 statistics. We have not
+replayed true workload traces (which would require access to
+proprietary production logs) nor tested on bursty arrival
+patterns common in interactive workloads. The
+\S\ref{sec:load} saturation finding (RL loses \slo{} edge at
+$\lambda \ge 4$) might shift under bursty workloads where
+short-term overload windows favor schedulers with explicit
+batching control.
+
+\textbf{Hardware coverage.} Our cloud-edge topology spans
+A100/T4/Jetson-tier servers, matching published deployment
+configurations. We have not tested with H100, MI300X, or
+custom inference accelerators (e.g., Groq LPU). The
+memory-bandwidth floor and batching constants would need
+re-calibration for these. However, the qualitative AIGC
+physics we model---weight residency, KV locality, batching,
+bandwidth floor, two-phase tasks---are architecture-agnostic
+and should generalize.
+
+\textbf{Statistical power.} Our $N=30$ runs per configuration
+give good detection power for medium-to-large effects
+(Cohen's $d \ge 0.5$) but cannot resolve small effects
+($d < 0.2$). The ablation null results in
+\S\ref{sec:ablation} thus mean ``we cannot detect differences
+larger than $\approx$5\% in \slo'' rather than ``no difference
+exists.'' A more definitive ablation would require $N=100+$
+runs, which we view as future work.
+
+\textbf{Single learning algorithm.} Our scheduler uses PPO
+with specific architectural choices (3-layer MLP, action mask,
+GAE). Other RL families---offline RL, model-based RL,
+imitation learning from a heuristic oracle---might respond
+differently to AIGC reward shaping. We tested two
+alternatives (A3C-R2N2 and GNN-PPO) and both exhibited similar
+substitutability of AIGC components, suggesting our finding is
+not PPO-specific, but the claim is bounded by this evidence.
+
+\subsection{Practical Deployment Guidance}
+\label{sec:guidance}
+
+For practitioners deploying AIGC schedulers in production
+cloud-edge environments, our results suggest the following
+concrete guidance.
+
+\textbf{Capacity planning matters more than scheduler choice.}
+The \S\ref{sec:workload} large-heavy-model experiment shows
+that when workload exceeds cluster capacity at a specific
+tier (e.g., 70B requests overflowing the single cloud server),
+all schedulers converge to $\approx$10\% \slo. A 28\% \slo{}
+improvement from AIGC-aware scheduling is dwarfed by the
+$3\times$ \slo{} improvement from adding a second cloud GPU.
+\emph{Provision compute first; optimize scheduling second.}
+
+\textbf{Use simple load balancers in the moderate-load regime}
+($\lambda \le 2$ req/s with diverse model mix). Our
+Fig.~\ref{fig:pareto} shows that LeastLoaded and ShortestQueue
+achieve 78\% of RL's \slo{} attainment with 0\% of the
+training cost. For deployments with small operational scale
+or limited ML engineering capacity, the marginal benefit of
+RL does not justify its operational overhead.
+
+\textbf{Reach for RL when energy efficiency or tail latency
+matter.} Across all 30 tested configurations, our AIGC-aware
+RL achieved 5--11\% lower energy per token than the next-best
+baseline (\S\ref{sec:topology}, \S\ref{sec:load}). For
+large-scale deployments where a 5\% energy reduction
+translates to meaningful annual savings (millions of USD at
+hyperscaler volumes), the RL operational investment is
+justified. Similarly, RL's stronger tail TTFT behavior (P95
+25.2~s vs.\ 28--41~s for baselines at edge${=}5$,
+$\lambda{=}2$) matters for interactive applications.
+
+\textbf{Be skeptical of reward-engineering claims.} If a
+future paper proposes a new AIGC reward component (X-bonus,
+Y-penalty), ask: was it ablated jointly with other AIGC
+rewards? Was the comparison against a pretrained baseline?
+Our results suggest that without these controls, gains
+attributed to specific reward components may reflect general
+RL backbone improvements rather than the claimed mechanism.

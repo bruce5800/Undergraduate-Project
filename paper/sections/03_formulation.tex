@@ -1,0 +1,201 @@
+% =============================================================
+% §3 Problem Formulation
+% =============================================================
+\section{Problem Formulation}
+\label{sec:formulation}
+
+We now formalize the cloud-edge LLM inference scheduling problem.
+\S\ref{sec:sys-model} introduces notation for the deployment
+topology and workload. \S\ref{sec:physics-constraints} expresses
+the five AIGC physics as constraints and cost functions on
+scheduling decisions. \S\ref{sec:sched-problem} states our
+scheduling problem as a multi-objective optimization.
+\S\ref{sec:mdp} casts it as a Markov Decision Process for
+reinforcement-learning treatment.
+
+\subsection{System Model}
+\label{sec:sys-model}
+
+\textbf{Deployment topology.} A heterogeneous compute pool
+$\mathcal{S} = \{s_0, s_1, \ldots, s_N\}$ where $s_0$ is a cloud
+server and $s_1, \ldots, s_N$ are edge servers. Each server $s$
+has fixed attributes: compute capacity $C_s$ (TFLOPS), VRAM
+capacity $V_s$ (GB), uplink bandwidth $B_s$ (Mbps), idle and
+peak power $P^{\text{idle}}_s$ and $P^{\max}_s$ (W). A network
+function $\tau(s, s', x)$ returns the transfer time of $x$~GB
+of data between servers $s$ and $s'$.
+
+\textbf{Model catalog.} A set
+$\mathcal{M} = \{m_1, \ldots, m_K\}$ of LLM variants. Each model
+$m$ has weight footprint $W_m$ (GB), cold-load time
+$C^{\text{cold}}_m$ (s), per-token KV-cache size $\kappa_m$
+(MB/token), per-token decode floor latency $\phi_m$ (s/token),
+and maximum batch size $B^{\max}_m$.
+
+\textbf{Request workload.} A stream of inference requests
+$\mathcal{R} = \{r_1, r_2, \ldots\}$ arrives over time according
+to a Poisson process at rate $\lambda$. Each request
+$r_i = (m_i, L^p_i, L^o_i, a_i)$ has a target model
+$m_i \in \mathcal{M}$, prompt length $L^p_i$, expected output
+length $L^o_i$, and arrival time $a_i$.
+
+\textbf{Task decomposition.} Each request $r_i$ decomposes into
+two tasks $(t^{\text{pre}}_i, t^{\text{dec}}_i)$ with a strict
+dependency edge $t^{\text{pre}}_i \to t^{\text{dec}}_i$. The
+prefill task carries workload
+$w^{\text{pre}}_i \propto L^p_i$, the decode task carries
+$w^{\text{dec}}_i \propto L^o_i$, and both reference the same
+model $m_i$ and request id $i$. The inference workload is
+therefore a forest of pairwise-independent two-node DAGs.
+
+\subsection{AIGC Physics as Constraints}
+\label{sec:physics-constraints}
+
+The five AIGC physics from \S\ref{sec:intro} manifest as the
+following constraints and cost terms governing how tasks
+execute on servers.
+
+\textbf{(P1) Model weight residency.} Server $s$ holds a state
+$L_s(t) \subseteq \mathcal{M}$ representing the set of models
+currently loaded in its VRAM at time $t$. A task targeting
+model $m$ admitted to $s$ pays a cold-load penalty
+$C^{\text{cold}}_m$ if $m \notin L_s(t)$. If loading $m$ would
+exceed $V_s$, the simulator evicts unpinned models in LRU
+order. Formally, the admission delay is:
+\begin{equation}
+  \delta^{\text{cold}}_{s,m,t} = C^{\text{cold}}_m \cdot
+    \mathbb{1}[m \notin L_s(t)].
+\end{equation}
+
+\textbf{(P2) KV-cache locality.} For each decode task
+$t^{\text{dec}}_i$ scheduled to server $s$ when its prefill
+$t^{\text{pre}}_i$ ran on $s'$, an additional KV-migration
+cost applies:
+\begin{equation}
+  \delta^{\text{kv}}_i = \tau\!\left(s', s,
+    L^p_i \cdot \kappa_{m_i} / 1024\right).
+\end{equation}
+When $s = s'$, this cost is zero (KV cache is local).
+
+\textbf{(P3) Continuous batching.} Let $b_{s,m,k}(t)$ denote
+the number of running same-model same-kind tasks on server $s$
+for model $m$, phase $k \in \{\text{pre}, \text{dec}\}$. A new
+task admitted at time $t$ to $(s, m, k)$ experiences effective
+execution time
+\begin{equation}
+  T^{\text{exec}}_{\text{eff}}
+    = T^{\text{solo}} \cdot
+      \bigl(1 + b_{s,m,k}(t) \cdot \beta_k\bigr),
+\end{equation}
+where $\beta_{\text{pre}} = 0.30$ and
+$\beta_{\text{dec}} = 0.05$ are phase-specific overhead factors.
+Admission requires $b_{s,m,k}(t) < B^{\max}_m$ (batch slot not
+full).
+
+\textbf{(P4) Memory-bandwidth floor.} The solo execution time
+of a phase task is the maximum of its compute-bound time and
+its memory-bound floor:
+\begin{equation}
+  T^{\text{solo}}
+    = \max\!\left(\frac{w_t}{C_s},\;
+                  \phi_{m_t} \cdot n_t\right),
+\end{equation}
+where $w_t$ is the task's workload (TFLOPS) and $n_t$ is its
+token count (input for prefill, output for decode).
+
+\textbf{(P5) Two-phase dependency.} The decode task
+$t^{\text{dec}}_i$ cannot become ready until
+$t^{\text{pre}}_i$ has fully completed. Combined with (P1) and
+(P2), this means a decode dispatched to $s \neq s'$ sees no
+benefit from prefill's KV cache---either it pays migration
+cost or re-runs prefill.
+
+\subsection{Scheduling Problem}
+\label{sec:sched-problem}
+
+A scheduling policy $\pi$ produces, for each ready task at each
+time step, an assignment $\pi: t \mapsto s \in \mathcal{S}$.
+Given a request stream $\mathcal{R}$, $\pi$ induces:
+
+\begin{itemize}
+\item Per-request \textbf{TTFT} (time-to-first-token):
+  $\text{TTFT}_i = e^{\text{pre}}_i - a_i$, where
+  $e^{\text{pre}}_i$ is the wall-clock completion time of the
+  prefill task.
+
+\item Per-request \textbf{TPOT} (time-per-output-token):
+  $\text{TPOT}_i = (e^{\text{dec}}_i - s^{\text{dec}}_i) / L^o_i$.
+
+\item \textbf{\slo{} attainment}:
+  \begin{equation}
+    \text{SLO}(\pi) = \frac{1}{|\mathcal{R}|} \sum_i
+      \mathbb{1}\!\bigl[\text{TTFT}_i \le T^*_{\text{TTFT}}
+        \land \text{TPOT}_i \le T^*_{\text{TPOT}}\bigr].
+  \end{equation}
+
+\item \textbf{Energy per token}:
+  \begin{equation}
+    E_{\text{tok}}(\pi) =
+      \frac{\sum_s \int_0^T P_s(t)\,dt}{\sum_i L^o_i},
+  \end{equation}
+  where instantaneous power
+  $P_s(t) = P^{\text{idle}}_s + (P^{\max}_s - P^{\text{idle}}_s)
+  \cdot u_s(t)$ depends on per-server compute utilization
+  $u_s(t)$.
+\end{itemize}
+
+Our scheduling problem is the \textbf{bi-objective program}:
+\begin{equation}
+  \max_\pi\; \text{SLO}(\pi)
+  \qquad
+  \min_\pi\; E_{\text{tok}}(\pi),
+\end{equation}
+subject to admission feasibility (compute, VRAM, batch-slot)
+at every step. Because the two objectives can be in tension
+(e.g., always-cloud maximizes per-request compute but
+overshoots energy budget), we evaluate policies on the
+$(\text{SLO}, E_{\text{tok}})$ plane and seek \textbf{Pareto
+dominance}: $\pi$ dominates $\pi'$ if $\pi$ is no worse on both
+axes and strictly better on at least one.
+
+\subsection{MDP Formulation for RL}
+\label{sec:mdp}
+
+We treat per-task dispatch as a sequential decision process and
+solve it with reinforcement learning. At each ready task
+arrival, the agent observes a state $\mathbf{s}_t$ summarizing
+the current task's properties and all servers' utilization,
+loaded-model sets, and batch occupancies (detailed encoding in
+\S\ref{sec:rl}). The agent emits an action
+$a_t \in \mathcal{S}$ choosing which server to dispatch to; the
+simulator applies the assignment, advances time until the next
+ready task, and emits a scalar reward $r_t$. We define the
+reward as a weighted sum of seven physical and AIGC-aware terms
+(specified in \S\ref{sec:rl}) designed to provide
+\textbf{dense per-decision} feedback rather than waiting for
+episode-end \slo{}/energy outcomes---an essential design choice
+given the long episode horizons ($\sim$100 task dispatches per
+simulation run).
+
+The MDP is \textbf{partially observable} in principle (the
+simulator's internal state is richer than $\mathbf{s}_t$), but
+the observable features capture all decision-relevant
+information under the simulator's dynamics. The MDP is
+\textbf{non-stationary within an episode} (server utilization
+evolves as tasks complete) and \textbf{stationary across
+episodes} (workload distribution is fixed). We solve with PPO
+with action masking, pretraining, and GAE, as detailed in
+\S\ref{sec:rl}.
+
+\textbf{Why RL.} A natural alternative to RL is solving the
+integer-linear program implied by \S\ref{sec:sched-problem}
+directly. We rejected this because (i) AIGC physics (P1)(P3)
+introduce \emph{state-dependent} costs (cold-load and batch
+overhead depend on server's running set, which changes within
+an episode), breaking the static-cost ILP assumption; and
+(ii) the combinatorial action space at each step
+($|\mathcal{S}|^{|\mathcal{R}|}$) is too large for
+branch-and-bound at realistic workload sizes. Heuristic and
+metaheuristic schedulers (HEFT, GA, PSO) compose a more
+comparable design space and serve as our primary baselines in
+\S\ref{sec:eval}.

@@ -1,0 +1,181 @@
+% =============================================================
+% §1 Introduction
+% =============================================================
+\section{Introduction}
+\label{sec:intro}
+
+Generative AI workloads, dominated by large language model (LLM)
+inference, have become the fastest-growing class of compute in
+modern data centers. The energy and carbon cost of training and
+serving such models has grown by orders of magnitude over the
+past five years~\cite{patterson2021carbon}, and inference now
+consumes more aggregate FLOPs than training across most production
+deployments~\cite{patel2024splitwise}. As LLM-powered services
+move from research demos into latency-sensitive applications---voice
+assistants, real-time coding assistants, streaming summarization---the
+systems community has begun rethinking how inference workloads should
+be \emph{scheduled} across heterogeneous compute pools.
+
+This paper studies \textbf{cloud-edge collaborative LLM inference
+scheduling}, a deployment paradigm gaining traction for three
+reasons: (i)~\textbf{cost}, by serving common-case queries on
+cheaper edge accelerators while reserving cloud GPUs for tail
+requests; (ii)~\textbf{privacy}, by keeping prompt data on-premises
+whenever possible; and (iii)~\textbf{tail latency}, by amortizing
+first-token latency through edge proximity. The scheduling
+problem---deciding which server should serve each request---now
+becomes a critical performance lever, distinct from intra-server
+batching engines such as
+vLLM~\cite{kwon2023vllm}, Orca~\cite{yu2022orca}, and
+Sarathi-Serve~\cite{agrawal2024sarathi}.
+
+\subsection{What makes LLM inference scheduling different}
+
+Existing cluster schedulers (HEFT, GA, PSO, and learning-based
+variants like Decima~\cite{mao2019decima} and
+RLScheduler~\cite{zhang2020rlscheduler}) were designed for generic
+DAG workloads such as Spark jobs or HPC batch tasks. They do not
+model the five physical characteristics that fundamentally
+distinguish LLM inference:
+
+\begin{enumerate}
+\item \textbf{Model weight residency.} LLM weights (14--70~GB
+  for LLaMA-7B/13B/70B at FP16/INT8) live persistently in GPU
+  memory. Switching models incurs cold-load cost of 5--60~seconds---orders
+  of magnitude larger than any per-request computation.
+
+\item \textbf{KV-cache locality.} Each request's KV cache---built
+  during prefill, consumed during decode---is bound to the GPU where
+  prefill ran. Migrating KV across servers costs hundreds of MB
+  of data movement per request, often dominating decode latency.
+
+\item \textbf{Continuous batching.} vLLM-style iteration-level
+  batching serves $N$ same-model requests in approximately
+  $(1 + (N-1)\cdot \alpha)\cdot T_{\text{solo}}$ time, providing
+  throughput speedups of $5$--$8\times$. Crucially, this benefit
+  only materializes when the scheduler co-locates same-model
+  requests on the same server.
+
+\item \textbf{Memory-bandwidth-bound decode.} Unlike prefill
+  (compute-bound), decode is bound by HBM memory bandwidth.
+  Decode latency per token is approximately 20~ms on A100-class
+  GPUs regardless of compute capacity, meaning that ``throw more
+  compute'' does not accelerate decode beyond this floor.
+
+\item \textbf{Two-phase request lifecycle.} Each inference
+  request decomposes into (Prefill $\rightarrow$ Decode) with
+  strict dependency and shared KV state. This violates the
+  assumption of independent stages baked into most DAG
+  schedulers.
+\end{enumerate}
+
+The combination of these five physics creates scheduling
+trade-offs absent from generic workloads: e.g., consolidating
+same-model requests on one server (for batching) versus
+spreading to avoid contention; placing decode on a
+fast-but-distant server (low compute time) versus its sibling
+prefill server (no KV migration). \textbf{A scheduler that
+ignores AIGC physics cannot exploit these trade-offs}, leaving
+substantial efficiency on the table.
+
+\subsection{Why na\"ive approaches fail}
+
+A natural hypothesis is that an off-the-shelf RL scheduler with
+sufficient training would \emph{implicitly} learn AIGC-aware
+behavior from base features (compute capacity, queue length,
+memory utilization). We initially set out to test exactly this
+hypothesis.
+
+Our empirical journey reveals a more subtle picture
+(Fig.~\ref{fig:pareto}):
+
+\begin{itemize}
+\item Generic load-balancing baselines (LeastLoaded,
+  ShortestQueue), optimal-DAG heuristics (HEFT, GA, PSO), and
+  even modern DRL baselines (A3C-R2N2~\cite{tuli2022a3cr2n} and
+  a Decima-inspired GNN variant we
+  implemented~\cite{mao2019decima}) all cluster in the same
+  Pareto region: \slo{} attainment around 21--24\% and energy
+  efficiency around 2.8--3.0 J/token.
+
+\item Our AIGC-aware PPO scheduler, sharing the actor-critic
+  family and equivalent pretraining budget with A3C-R2N2 but
+  with explicit AIGC state features and reward shaping, achieves
+  a \textbf{distinctly better Pareto point}: \slo{} 30.2\%
+  ($+28\%$ relative) and energy 2.61~J/token ($-7\%$ relative),
+  with $p<0.05$ on \slo{} against all four strongest baselines
+  and on energy per token against three of four (PSO is
+  directionally consistent but $p=0.11$).
+
+\item However, our 12-component ablation
+  (Table~\ref{tab:ablation}, Fig.~\ref{fig:ablation}) reveals a
+  paradox: removing any single AIGC component (warm reward,
+  batch reward, affinity reward, AIGC state features, even all
+  of them jointly) leaves performance essentially unchanged.
+  Only continuous batching simulation and adequate pretraining
+  stand out as significant components.
+\end{itemize}
+
+\subsection{Reconciliation and contributions}
+
+These observations are reconciled by recognizing that
+\textbf{AIGC-aware scheduling is a holistic system contribution,
+not a clever reward component}. Once a scheduler has
+(i)~continuous batching physics in its environment,
+(ii)~adequate pretraining samples, and (iii)~some AIGC
+awareness in either state or reward, the PPO backbone extracts
+equivalent signal from any of the AIGC priors---they are
+mutually substitutable in practice. The Pareto improvement is
+real, but it comes from the \emph{combination}, not from
+individual reward tricks.
+
+\medskip
+\noindent This paper makes four contributions:
+
+\smallskip
+\noindent\textbf{(C1) An AIGC inference simulation platform}
+(M1--M4 milestones) that models the five physical characteristics
+described above: model weight residency with LRU eviction (M1),
+two-phase prefill/decode tasks with KV-cache memory accounting
+(M2), admission-time continuous batching (M3), and
+memory-bandwidth floors calibrated to vLLM measurements (M4).
+The platform is open-sourced with reproducibility manifests.
+
+\smallskip
+\noindent\textbf{(C2) An AIGC-aware PPO scheduler} (RL) that
+exposes AIGC physics to the policy via state features
+(loaded-model indicator, batch occupancy, sibling-server
+affinity, KV-cache size) and reward shaping (warm bonus, batch
+bonus, affinity bonus, cloud-overuse penalty). The scheduler
+achieves \textbf{Pareto dominance} over eight strong baselines
+in \slo{} attainment and energy efficiency.
+
+\smallskip
+\noindent\textbf{(C3) A systematic 12-component ablation study}
+revealing which AIGC abstractions actually contribute. The
+striking null result---that no single AIGC reward or state
+component is individually significant---suggests prior works
+claiming specific AIGC reward tricks should ablate aggressively
+before attributing gains to specific designs.
+
+\smallskip
+\noindent\textbf{(C4) An empirical ``regime'' characterization}
+showing that AIGC-aware RL achieves strict Pareto dominance only
+in the \textbf{moderate-load operating regime}
+($\lambda \in [1, 2]$ req/s with uniform model mix), while
+maintaining a robust 5--11\% energy efficiency advantage across
+all 30 tested configurations. This nuanced finding contradicts
+simpler ``always wins'' claims common in DRL scheduling
+literature and provides actionable guidance for AIGC scheduling
+deployment.
+
+\medskip
+The rest of this paper is organized as follows: \S\ref{sec:background}
+reviews LLM inference and cloud-edge scheduling background;
+\S\ref{sec:formulation} formalizes the scheduling problem with the
+five AIGC physics; \S\ref{sec:system} details our simulator design
+(\S\ref{sec:simulator}) and AIGC-aware RL scheduler
+(\S\ref{sec:rl}); \S\ref{sec:eval} reports our experimental
+evaluation; \S\ref{sec:discuss} discusses limitations and
+implications; \S\ref{sec:related} surveys related work;
+\S\ref{sec:conclusion} concludes.

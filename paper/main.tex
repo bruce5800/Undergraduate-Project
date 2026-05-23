@@ -1,0 +1,79 @@
+% =============================================================
+% Pareto-Dominant Reinforcement Learning for Cloud-Edge LLM
+% Inference Scheduling
+% =============================================================
+% Build: make           (uses pdflatex + bibtex + pdflatex x 2)
+% =============================================================
+
+\documentclass[conference]{IEEEtran}
+
+% --- Packages --------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% Use Computer Modern teletype (universally bundled) instead of
+% IEEEtran's default Courier (pcr) which may not be installed.
+\renewcommand{\ttdefault}{cmtt}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{textcomp}
+
+% --- Graphics path ---------------------------------------------
+\graphicspath{{figures/}}
+
+% --- Hyperref styling -----------------------------------------
+\hypersetup{
+  colorlinks = true,
+  linkcolor  = black,
+  citecolor  = blue!50!black,
+  urlcolor   = blue!50!black,
+}
+
+% --- Convenience macros ----------------------------------------
+\newcommand{\slo}{\textsc{slo}}
+\newcommand{\etok}{$E/$tok}
+\newcommand{\rlours}{\textbf{RL (ours)}}
+\newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+
+% --- Title and authors -----------------------------------------
+\title{Pareto-Dominant Reinforcement Learning for\\
+Cloud-Edge LLM Inference Scheduling}
+
+\author{
+  \IEEEauthorblockN{Anonymous Author(s)}
+  \IEEEauthorblockA{Affiliation Withheld for Review\\
+                    Email: anonymous@example.com}
+}
+
+\begin{document}
+
+\maketitle
+
+% =============================================================
+\input{sections/00_abstract}
+
+\begin{IEEEkeywords}
+LLM inference, AIGC, cloud-edge computing, reinforcement learning,
+scheduling, energy efficiency, Pareto optimization.
+\end{IEEEkeywords}
+
+% =============================================================
+\input{sections/01_intro}
+\input{sections/02_background}
+\input{sections/03_formulation}
+\input{sections/04_system}
+\input{sections/05_evaluation}
+\input{sections/06_discussion}
+\input{sections/07_related}
+\input{sections/08_conclusion}
+
+% =============================================================
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

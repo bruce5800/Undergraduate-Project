@@ -1,0 +1,15 @@
+# LaTeX build artifacts — don't commit
+*.aux
+*.log
+*.bbl
+*.blg
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+sections/*.aux
+
+# Built PDF (covered by root .gitignore *.pdf as well)
+main.pdf

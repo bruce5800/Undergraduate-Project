@@ -1,0 +1,182 @@
+% =============================================================
+% §2 Background
+% =============================================================
+\section{Background}
+\label{sec:background}
+
+This section provides the background needed to understand the
+AIGC physics introduced in \S\ref{sec:intro} and the system
+design in \S\ref{sec:system}. We first sketch LLM inference
+(\S\ref{sec:bg-inference}) and the continuous-batching serving
+model (\S\ref{sec:bg-batching}), then describe cloud-edge
+collaborative deployment (\S\ref{sec:bg-cloudedge}), and finally
+summarize the scheduling approaches our work builds on or
+contrasts with (\S\ref{sec:bg-sched}).
+
+\subsection{LLM Inference: Prefill, Decode, KV Cache}
+\label{sec:bg-inference}
+
+Modern LLMs are decoder-only
+Transformers~\cite{vaswani2017attention,brown2020gpt3} producing
+one output token at a time given a textual prompt. Inference
+proceeds in two distinct phases that have markedly different
+hardware characteristics.
+
+\textbf{Prefill} is invoked once per request: it ingests the
+entire prompt (of length $L_p$ tokens) through a forward pass
+in parallel, producing the first output token and---critically---an
+intermediate \emph{key-value cache} (KV cache) for each
+Transformer layer. Prefill compute scales as $O(L_p \cdot d)$
+multiply-accumulate operations and saturates GPU compute
+utilization for prompts longer than a few dozen tokens.
+
+\textbf{Decode} is then invoked iteratively, once per output
+token, to generate the remaining $L_o$ tokens. Each decode step
+re-uses the stored KV cache plus one new token's worth of input,
+producing one new token and extending the KV cache by one entry
+per layer. Each decode step is fast ($\sim$10--80~ms on
+A100-class GPUs), but the \emph{sequence} of $L_o$ steps
+dominates end-to-end request latency for long generations.
+
+The KV cache is large ($\approx$0.5--2.5~MB per token per
+Transformer layer for LLaMA-class models) and grows
+monotonically with each decode step. For a 1000-token
+conversation on LLaMA-13B, the KV cache reaches roughly
+800~MB---often larger than the activation memory of a single
+forward pass. \textbf{Critically, the KV cache is bound to the
+GPU where prefill executed}; serving the corresponding decode
+steps on a different GPU requires either copying hundreds of
+MB across the network (expensive) or re-running prefill
+(wasteful).
+
+Beyond the standard Transformer LLMs that are our focus, AIGC
+workloads also include text-to-image diffusion models (Stable
+Diffusion XL) whose inference pattern---iterative denoising
+steps invoking the same U-Net---is structurally different but
+shares the model-residency and batching characteristics that
+motivate our work.
+
+\subsection{Continuous Batching and Modern Serving Systems}
+\label{sec:bg-batching}
+
+Throughput-oriented LLM serving systems exploit a key
+optimization: \textbf{batching same-model requests into a
+shared forward pass}. With $B$ requests in a batch, each decode
+step takes $T_{\text{solo}} \cdot (1 + (B-1) \cdot \alpha)$
+wall-clock time rather than $B \cdot T_{\text{solo}}$, providing
+a $5$--$8\times$ throughput speedup at modest per-request
+latency cost. The decode-phase batching overhead is typically
+$<5\%$ per added request because decode is memory-bandwidth-bound;
+the prefill-phase overhead is higher ($\sim$30\%) because
+prefill is compute-bound and harder to fuse.
+
+The breakthrough enabling efficient batching at scale is
+\textbf{continuous (iteration-level) batching}, introduced by
+Orca~\cite{yu2022orca} and refined by
+vLLM~\cite{kwon2023vllm} and
+Sarathi-Serve~\cite{agrawal2024sarathi}. Continuous batching
+dynamically recomposes the running batch at every decoder
+iteration: requests that have just finished are evicted, and
+queued requests can join mid-flight without waiting for the
+entire batch to drain. vLLM's PagedAttention~\cite{kwon2023vllm}
+additionally fragments the KV cache into pages of contiguous
+tokens, allowing GPU memory to absorb more concurrent sequences
+without external fragmentation.
+
+These engine-level optimizations have transformed single-server
+LLM serving but \textbf{only operate within one server}. The
+question of \emph{which server should serve a given
+request}---the focus of this paper---is left to an upstream
+scheduler.
+
+\subsection{Cloud-Edge Collaborative LLM Deployment}
+\label{sec:bg-cloudedge}
+
+Production LLM services increasingly deploy across
+heterogeneous compute pools spanning cloud and edge
+infrastructure. A typical topology includes:
+
+\begin{itemize}
+\item \textbf{One or more cloud servers} equipped with
+  high-end accelerators (e.g., A100/H100, 80+~GB VRAM) capable
+  of hosting the largest models (LLaMA-70B INT8 $\approx$ 70~GB)
+  and serving high-throughput batches.
+
+\item \textbf{A pool of heterogeneous edge servers} ranging
+  from data-center A100 nodes through workstation-class T4 GPUs
+  to embedded Jetson Orin devices. Edge nodes have smaller VRAM
+  (16--64~GB), lower compute (10--50 TFLOPS), and lower power
+  draw (30--250~W TDP). Smaller LLaMA-7B/13B variants can
+  comfortably reside on mid-tier edge nodes; larger models
+  cannot.
+
+\item \textbf{A network fabric} with cloud-edge round-trip
+  latency of 30--65~ms and edge-edge latency of 8--23~ms,
+  modeled after typical regional WAN and metropolitan LAN
+  deployments.
+\end{itemize}
+
+The cloud-edge paradigm is motivated by three economic forces:
+(i)~\textbf{latency}---edge servers reduce first-token latency
+for geographically proximate users; (ii)~\textbf{cost}---edge
+GPUs are 1--10$\times$ cheaper per FLOP and 2--10$\times$ lower
+power than cloud A100/H100 instances; (iii)~\textbf{data
+sovereignty}---many enterprises restrict prompt data from
+leaving local infrastructure. Splitwise~\cite{patel2024splitwise}
+and DistServe~\cite{zhong2024distserve} have recently argued
+for disaggregating prefill from decode across machines of
+different generations to exploit hardware heterogeneity; we
+share their premise but explore the \emph{scheduling} question
+they leave open: given a fixed heterogeneous pool, where
+should each request go?
+
+\subsection{Scheduling Approaches: A Brief Survey}
+\label{sec:bg-sched}
+
+Cloud-edge scheduling has historically been addressed by three
+families of algorithms, none of which natively encode AIGC
+physics:
+
+\textbf{Heuristic schedulers.} HEFT (Heterogeneous Earliest
+Finish Time)~\cite{topcuoglu2002heft} computes a per-task
+upward-rank priority and assigns each task to the server
+minimizing estimated EFT under a fixed cost model. Round-Robin,
+Least-Loaded, and Shortest-Queue are simpler load-balancing
+heuristics popular in industry. These approaches treat tasks
+as independent black boxes; they cannot, for example, prefer
+a server that has the requested model already loaded.
+
+\textbf{Metaheuristic search.} Genetic
+Algorithms~\cite{holland1975adaptation} and Particle Swarm
+Optimization~\cite{kennedy1995pso} perform population-based
+search over candidate assignments under a designer-specified
+fitness function. They are effective when the fitness landscape
+is well-shaped but suffer from manual tuning of the fitness
+function---and adding ``AIGC physics'' would require
+hand-engineering additional fitness terms, which is precisely
+the design we automate.
+
+\textbf{Learning-based schedulers.} Decima~\cite{mao2019decima}
+proposes GNN-based RL for Spark DAG scheduling, demonstrating
+that neural policies can outperform hand-tuned heuristics under
+realistic workloads. RLScheduler~\cite{zhang2020rlscheduler}
+applies similar ideas to HPC batch jobs. Most relevantly to our
+work, A3C-R2N2~\cite{tuli2022a3cr2n} uses asynchronous
+actor-critic with a residual recurrent encoder for
+\emph{generic} edge-cloud task scheduling---but it predates the
+LLM era and includes no AIGC priors. Our scheduler builds on
+this lineage but introduces AIGC-aware state and reward
+components and contrasts directly against an A3C-R2N2 baseline
+to isolate the AIGC contribution.
+
+A complementary line of work focuses on within-server LLM
+optimization rather than cross-server scheduling:
+Splitwise~\cite{patel2024splitwise} disaggregates prefill and
+decode onto different GPU generations;
+DistServe~\cite{zhong2024distserve} co-optimizes resource
+allocation and parallelism; Llumnix~\cite{sun2024llumnix}
+performs runtime request migration across model instances.
+These efforts are orthogonal to scheduler design---they could
+be deployed inside any of the server pools our scheduler
+manages---and we treat their batching and migration assumptions
+as the substrate on which our scheduler operates.
