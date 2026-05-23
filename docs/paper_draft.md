@@ -1,20 +1,4 @@
-# Paper Draft（草稿）
-
-> 目标：完成论文 §5.1 主结果，给整篇文章定调。
-> 数据来源：`figs/energy_scan2/`（修复能耗 bug 后的 edge=5 λ=2 N=30 数据）
-> 状态：A sensitivity 实验后台跑中，跑完后回填 §5.2-§5.4
-
----
-
-## 工作标题（待定）
-
-**主选**：
-> Pareto-Dominant Reinforcement Learning for Cloud-Edge LLM Inference Scheduling
-
-**备选**：
-> AIGC-Aware Scheduling for Heterogeneous Cloud-Edge LLM Inference: A Multi-Objective Reinforcement Learning Approach
-
----
+# Pareto-Dominant Reinforcement Learning for Cloud-Edge LLM Inference Scheduling
 
 ## Abstract
 
@@ -40,11 +24,12 @@ per configuration, our scheduler achieves **Pareto dominance**
 in service-level objective (SLO) attainment and energy
 efficiency: **+28% SLO and −7% energy** per token at the
 canonical configuration (edge=5, λ=2 req/s), with statistical
-significance (p<0.05) on both axes against the four strongest
-comparators. The Pareto advantage extends robustly to edge
-counts {3, 5, 7} and arrival rates [0.5, 2] req/s; energy
-efficiency remains best in class (5–11% lower) across all 30
-tested configurations.
+significance (Mann-Whitney *p<0.05*) on SLO against all four
+strongest comparators and on energy per token against three of
+four (PSO p=0.11, others p<0.05). The Pareto advantage extends
+robustly to edge counts {3, 5, 7} and arrival rates [0.5, 2]
+req/s; energy efficiency remains best in class (5–11% lower)
+across all 30 tested configurations.
 
 A systematic **12-component ablation** reveals a more subtle
 structure: only continuous-batching simulation (−83% SLO when
@@ -55,8 +40,6 @@ detectable individual effect (all p > 0.39). We conclude that
 rather than a clever reward trick**, and recommend joint
 ablation as a methodological standard for future AIGC
 scheduling claims.
-
----
 
 ---
 
@@ -142,16 +125,19 @@ Our empirical journey reveals a more subtle picture (Figure 4):
 
 - Generic load-balancing baselines (LeastLoaded, ShortestQueue),
   optimal-DAG heuristics (HEFT, GA, PSO), and even modern DRL
-  baselines (A3C-R2N2 [Tuli'22], GNN [Mao'19]-style) all cluster
-  in the same Pareto region: SLO attainment around 21–24% and
-  energy efficiency around 2.8–3.0 J/token.
+  baselines (A3C-R2N2 [Tuli'22] and a Decima-inspired GNN variant
+  we implemented [Mao'19]) all cluster in the same Pareto region:
+  SLO attainment around 21–24% and energy efficiency around
+  2.8–3.0 J/token.
 
-- Our AIGC-aware PPO scheduler, trained with the same algorithmic
-  backbone as A3C-R2N2 but with explicit AIGC state features and
-  reward shaping, achieves a **distinctly better Pareto point**:
-  SLO 30.2% (+28% relative) and energy 2.61 J/token (−7% relative),
-  both statistically significant (p<0.05 against all four strong
-  baselines).
+- Our AIGC-aware PPO scheduler, sharing the actor-critic family
+  and equivalent pretraining budget with A3C-R2N2 but with
+  explicit AIGC state features and reward shaping, achieves a
+  **distinctly better Pareto point**: SLO 30.2% (+28% relative)
+  and energy 2.61 J/token (−7% relative), with p<0.05 on SLO
+  against all four strongest baselines and on energy per token
+  against three of four (PSO is directionally consistent but
+  p=0.11).
 
 - However, our 12-component ablation (Table 6, Figure 7) reveals a
   paradox: removing any single AIGC component (warm reward, batch
@@ -376,28 +362,6 @@ orthogonal to scheduler design—they could be deployed inside
 any of the server pools our scheduler manages—and we treat
 their batching and migration assumptions as the substrate on
 which our scheduler operates.
-
----
-
-## Section Outline
-
-| § | Section | 已写 | 主要数据/图 |
-|---|---------|------|------------|
-| 1 | Introduction | TODO | Fig 1（trace_integration.drawio） |
-| 2 | Background: AIGC physics | TODO | Fig 2/3（distributed_*.drawio） |
-| 3 | Problem formulation | TODO | — |
-| 4 | System design | TODO | — |
-| 4.1 | Simulator (M1–M4 物理建模) | TODO | — |
-| 4.2 | AIGC-aware RL scheduler | TODO | — |
-| 5 | **Evaluation** | **本文档** | — |
-| 5.1 | **Main results: Pareto dominance** | **✅** | **Table 1, Fig 4** |
-| 5.2 | **Topology sensitivity (edge counts)** | **✅** | Table 2, Fig 5 |
-| 5.3 | **Load sensitivity (λ ∈ [0.5, 8])** | **✅** | Table 3, Fig 6 |
-| 5.4 | **Workload composition sensitivity** | **✅** | Table 4 |
-| 5.5 | Component ablation | ✅ 数据已有（ablN30_*）| Table 5 |
-| 6 | Discussion | TODO | — |
-| 7 | Related work | TODO | — |
-| 8 | Conclusion | TODO | — |
 
 ---
 
@@ -822,11 +786,14 @@ measurable value beyond standard RL machinery.
 ### 5.0 Experimental Setup
 
 **Simulation platform.** All experiments use our AIGC inference
-simulator implementing four physics: (M1) model weight residency
-with LRU eviction and cold-load delay; (M2) prefill–decode two-phase
-tasks with explicit KV-cache memory accounting; (M3) admission-time
-continuous batching with phase-dependent overhead; (M4) memory
-bandwidth floor calibrated to vLLM measurements.
+simulator implementing the five AIGC physics from §1, organized
+as four engineering milestones (M1–M4): (M1) model weight
+residency with LRU eviction and cold-load delay; (M2) prefill–
+decode two-phase tasks with explicit KV-cache memory accounting
+(jointly addressing the two-phase lifecycle and KV-locality
+physics); (M3) admission-time continuous batching with phase-
+dependent overhead; (M4) memory-bandwidth floor calibrated to
+vLLM measurements.
 
 **Hardware configuration.** One cloud-class server (200 TFLOPS,
 128 GB VRAM, A100-80GB-equivalent) plus 1–7 heterogeneous edge
@@ -1293,18 +1260,6 @@ that prevents the policy from collapsing to a "send everything to
 cloud" strategy. The data reported here reflects the final,
 calibrated configuration.
 
-> 复用现有 `figs/ablN30_*` 数据 + F12 数据
->
-> 关键发现已确认：
-> - `no_batching` → −84% SLO（continuous batching 是 dominant factor）
-> - `no_pretrain` → −31% SLO（pretrain 也是关键）
-> - 单项 `no_warm/batch/affinity_reward` → 噪声内
-> - **组合 `no_aigc_full` → 与 `none` 在 SLO 上无差异，但能耗下降不显著
->   （RL 通过 base features 隐式学到 SLO 优化，但 AIGC 显式信号在能耗维度
->   提供边际收益）**
-
----
-
 ---
 
 ## §6 Discussion
@@ -1336,16 +1291,18 @@ toward near-optimal behavior.
 
 **Implication 2: Pretraining is the cheapest essential
 investment.** Disabling pretraining cost us 38% SLO (the
-second-largest ablation effect). Yet pretraining requires
-only 20 episodes (~10–15 seconds of wall-clock) on the
-target workload. This is essentially a "free" optimization
+second-largest ablation effect, p<0.001). Yet pretraining
+requires only 20 episodes (~10–15 seconds of wall-clock) on
+the target workload. This is essentially a "free" optimization
 that practitioners deploying RL schedulers should always
 include. Importantly, pretraining matters not for sample
 efficiency in the conventional sense (our policy network is
-small and converges quickly), but for **escaping degenerate
-attractors**: without pretrain, PPO collapses to an
-"always-cloud" policy that is locally optimal under the
-gradient landscape but globally bad on SLO and energy.
+small and converges quickly), but for **escaping locally
+optimal regions** of the policy space—analogous to the
+"always-cloud" attractor we documented in our diagnostic
+process (§F1+F2 in the appendix) that earlier configurations
+exhibited before we introduced both extended pretraining and
+the cloud-overuse penalty.
 
 **Implication 3: Don't over-attribute gains to reward
 shaping.** Our 12-component ablation revealed that no
@@ -1489,8 +1446,8 @@ enabling 2–4× throughput improvements. **Sarathi-Serve**
 [Agrawal'24] introduced *chunked prefill*—decomposing long
 prefill phases into multiple shorter chunks—to mitigate
 generation stalls in mixed prefill/decode batches.
-**TensorRT-LLM** [NVIDIA'24] provides production-grade
-kernels with similar batching capabilities.
+NVIDIA's TensorRT-LLM provides production-grade kernels with
+similar batching capabilities.
 
 These systems are **orthogonal to our work**: they optimize
 within a single server's GPU, whereas we schedule requests
