@@ -1,0 +1,49 @@
+{
+  "timestamp": "2026-05-23T01:03:19",
+  "git_commit": "522aa20182cc733a808c02842be14cc94e16c03f",
+  "num_runs": 30,
+  "edge_counts": [
+    5
+  ],
+  "workload": "inference",
+  "total_tasks": 100,
+  "interval": 20,
+  "aigc": false,
+  "aigc_alpha": null,
+  "ablation": "no_aigc_state",
+  "ttft_slo": 2.0,
+  "tpot_slo": 0.1,
+  "trace_preset": "lognormal",
+  "arrival_rate": 2.0,
+  "quick": false,
+  "schedulers": [
+    "RoundRobin",
+    "LeastLoaded",
+    "ShortestQueue",
+    "HEFT",
+    "GA",
+    "PSO",
+    "A3C_R2N2",
+    "RL"
+  ],
+  "cli_argv": [
+    "brenchmark.py",
+    "--workload",
+    "inference",
+    "--trace-preset",
+    "lognormal",
+    "--arrival-rate",
+    "2.0",
+    "--runs",
+    "30",
+    "--tasks",
+    "100",
+    "--edge",
+    "5",
+    "--ablation",
+    "no_aigc_state",
+    "--rl-only",
+    "--out",
+    "figs/abl_paper_no_aigc_state"
+  ]
+}

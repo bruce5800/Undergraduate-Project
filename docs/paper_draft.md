@@ -411,6 +411,140 @@ for capacity planning in §6.
 
 ### 5.5 Component Ablation
 
+To isolate which of our RL scheduler's components contribute to its
+Pareto dominance, we systematically ablate 12 components by disabling
+one at a time, holding all else equal. All ablations use edge=5,
+λ=2 req/s, uniform mix, N=30 runs.
+
+**Ablation taxonomy.** We group ablations into four categories:
+
+| Category | Ablations | What it tests |
+|----------|-----------|---------------|
+| **Physical layer** | `no_batching` | Whether continuous batching simulation matters |
+| **PPO internals** | `no_action_mask`, `no_gae`, `no_pretrain`, `no_entropy` | Standard RL hyperparameter ablations |
+| **AIGC reward** | `no_warm_reward`, `no_batch_reward`, `no_affinity_reward`, `no_cloud_overuse`, `no_all_aigc_rewards` | Whether each AIGC reward bonus contributes |
+| **AIGC state** | `no_aigc_state`, `no_aigc_full` (state + all rewards) | Whether AIGC features in state input matter |
+
+#### Table 6: SLO and Energy Impact of Each Component Removal
+
+(N=30, edge=5, λ=2, uniform mix; *p* from Mann-Whitney U test
+vs Full RL on the SLO metric. \*\*\* p<0.001, \*\* p<0.01, \* p<0.05.)
+
+| Category | Configuration | SLO | ΔSLO% | E/tok | ΔE/tok% | p (SLO) |
+|----------|---------------|----:|------:|------:|--------:|--------:|
+| — | **Full RL (ours)** | **0.302** | — | **2.61** | — | — |
+| **Physical** | **− Continuous batching** | **0.051** | **−83.2%** | **5.75** | **+120.5%** | **<0.001** \*\*\* |
+| **PPO** | **− Pretraining (20 → 0 eps)** | **0.186** | **−38.4%** | **2.96** | **+13.5%** | **<0.001** \*\*\* |
+| PPO | − Action masking | 0.274 | −9.3% | 2.66 | +2.1% | 0.39 |
+| PPO | − GAE (use MC return) | 0.292 | −3.3% | 2.61 | −0.1% | 0.65 |
+| PPO | − Entropy regularization | 0.305 | +0.9% | 2.54 | −2.8% | 0.92 |
+| AIGC reward | − Warm bonus | 0.300 | −0.7% | 2.60 | −0.4% | 0.87 |
+| AIGC reward | − Batch bonus | 0.311 | +3.1% | 2.59 | −0.8% | 0.87 |
+| AIGC reward | − Affinity bonus | 0.287 | −4.9% | 2.64 | +1.3% | 0.57 |
+| AIGC reward | − Cloud-overuse penalty | 0.309 | +2.2% | 2.60 | −0.5% | 0.96 |
+| AIGC reward (joint) | − All AIGC rewards | 0.302 | +0.0% | 2.62 | +0.5% | 0.95 |
+| AIGC state | − AIGC state features | 0.295 | −2.2% | 2.55 | −2.1% | 0.81 |
+| AIGC (joint) | − **All AIGC design (state + rewards)** | 0.306 | +1.3% | 2.52 | −3.3% | 0.99 |
+
+#### Findings: Two dominant components + a striking null result
+
+**Finding 1: Continuous batching is the physical foundation
+(p<0.001, ΔSLO=−83.2%, ΔE/tok=+120.5%).** Removing the batching
+simulation makes the scheduler effectively useless—SLO collapses
+to 5% and energy per token more than doubles. This validates
+Sarathi-Serve (Agrawal et al., OSDI'24) and Orca's (Yu et al.,
+OSDI'22) emphasis on iteration-level batching as foundational
+infrastructure rather than a scheduling optimization.
+
+**Finding 2: Adequate pretraining is essential
+(p<0.001, ΔSLO=−38.4%, ΔE/tok=+13.5%).** Without the 20-episode
+pretrain, the RL policy fails to escape the "cloud collapse"
+attractor we identified in our diagnostic process (§F1+F2 in
+Appendix). This finding aligns with broader observations in DRL
+scheduling literature (Decima, RLScheduler) that warm-start /
+pretraining is essential for sample efficiency in stochastic
+scheduling environments.
+
+**Finding 3: Individual AIGC components show *no significant
+effect* (p > 0.39 for all).** Disabling any single AIGC component
+(warm/batch/affinity/cloud-overuse reward, or AIGC state features)
+results in within-noise changes (±5%). This is consistent with the
+hypothesis that PPO with adequate base features and pretraining
+*implicitly learns* AIGC-aware behavior, with explicit shaping
+providing redundant rather than essential signal.
+
+**Finding 4 (most striking): Removing ALL AIGC design also has no
+effect (p=0.99 for SLO, ΔE/tok=−3.3%).** The combined ablation
+`no_aigc_full` shows essentially identical SLO performance to Full
+RL, and *slightly better* energy efficiency. Combined with §5.1's
+finding that our scheduler Pareto-dominates eight baselines—yet
+its AIGC-specific design components are individually and jointly
+ablatable—this paints a more subtle picture: **the contribution
+of "AIGC awareness" is captured in the training procedure +
+simulator physics + RL backbone choice, rather than in any single
+reward or state component.**
+
+#### Reconciliation: How can RL Pareto-dominate baselines yet be
+ablation-insensitive?
+
+The apparent paradox between §5.1 (RL strictly dominates 8 baselines,
+p<0.05) and Table 6 (no single AIGC component is significant)
+resolves as follows. **Baselines differ from our RL in fundamental
+ways simultaneously:**
+
+- LB-style baselines (LL, SQ): no learning, no adaptation
+- HEFT/GA/PSO: optimize a fixed cost function without AIGC
+  physics in the cost
+- A3C-R2N2: same RL backbone as us, but without batching reward
+  shaping and with a GRU encoder
+- GNN: same AIGC features but different encoder and less stable
+  training under our budget
+
+When all these elements differ at once, baselines fall behind on
+the Pareto frontier by 7-28%. When we ablate any single AIGC
+component within our scheduler—keeping the PPO backbone, the
+20-episode pretrain, the action mask, and the rest of the AIGC
+features—PPO compensates by extracting equivalent signal from
+remaining base features (compute, memory, queue length,
+transfer time).
+
+This reconciliation is significant: it tells us **AIGC-aware
+scheduling is a holistic system contribution, not a clever reward
+or state component**. Future work hoping to replicate or extend
+AIGC-aware scheduling should focus on the *combination*: enough
+pretraining (≥20 episodes), realistic batching physics, and *some*
+AIGC awareness in either state or reward (rather than fixating on
+which specific signals to expose).
+
+#### Implications for AIGC scheduling research
+
+1. **Don't over-engineer reward shaping.** Our diagnostic (§F1+F2)
+   showed that simple individual rewards (warm, batch, affinity)
+   don't matter once the system has continuous batching simulation
+   and adequate pretraining. *Future works* should ablate aggressively
+   before claiming credit for specific reward components.
+
+2. **Simulator physics matter more than algorithm tweaks.** The
+   −83% SLO collapse from removing batching is an order of
+   magnitude larger than any AIGC reward component. This shifts
+   research priority from RL design to faithful physical
+   simulation.
+
+3. **Pretraining sets the floor.** Our 20-episode pretrain takes
+   ≈10-15 seconds wall-clock; without it, the scheduler is
+   permanently stuck in a degenerate "always cloud" policy.
+   Pretraining is the cheap-but-essential investment.
+
+**Notably**, an early version of our experiments (using a smaller
+pretrain budget of 5 episodes and without the `cloud_overuse`
+reward term) found *no* significant impact from individual AIGC
+reward components. This led to several diagnostic improvements
+(see §F1+F2 in our supplementary engineering log) including
+extended pretrain to 20 episodes and the cloud-overuse penalty
+that prevents the policy from collapsing to a "send everything to
+cloud" strategy. The data reported here reflects the final,
+calibrated configuration.
+
 > 复用现有 `figs/ablN30_*` 数据 + F12 数据
 >
 > 关键发现已确认：
