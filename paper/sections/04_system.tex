@@ -4,138 +4,78 @@
 \section{System Design}
 \label{sec:system}
 
-Our system consists of two co-designed components:
-(\S\ref{sec:simulator}) the AIGC inference simulator---an
-open-source platform that models the five AIGC physics
-enumerated in \S\ref{sec:intro} with realistic per-request
-granularity---and (\S\ref{sec:rl}) the AIGC-aware RL
-scheduler---a PPO policy that exposes AIGC physics to the agent
-via structured state features and reward shaping.
+Our system has two co-designed components: an AIGC inference
+simulator that models the five physics from \S\ref{sec:intro}
+(\S\ref{sec:simulator}), and an AIGC-aware PPO scheduler that
+exposes those physics to the policy via structured state and
+reward shaping (\S\ref{sec:rl}).
 
 \subsection{AIGC Inference Simulator}
 \label{sec:simulator}
 
 We implement the simulator in Python as a discrete-time
-event-driven environment with a 0.1~s simulation step. Each
-step performs four operations: (a) check for completed tasks
-and release resources; (b) update task dependency and arrival
-gating to transition \texttt{WAITING}~$\to$~\texttt{READY};
-(c) invoke the scheduler to assign \texttt{READY} tasks to
-servers; (d) start any admitted tasks on their target servers
-and accumulate per-server energy. We organize the simulator's
-physics modeling as four incremental milestones (M1--M4), each
-addressing one or more of the five AIGC physics from
-\S\ref{sec:intro}.
-
-\textbf{M1: Model Weight Residency.} Every server maintains a
-\texttt{loaded\_models} dictionary tracking which models have
-weights in GPU VRAM, plus a \texttt{model\_refs} reference
-count for currently running tasks that prevent eviction. When
-a request arrives needing a model not yet loaded, the server
-(i)~evicts the least-recently-used unpinned model(s) until VRAM
-headroom suffices, and (ii)~pays a \texttt{cold\_load\_sec}
-delay before the task starts execution. Cold-load times are
-calibrated per model (e.g., 5~s for LLaMA-7B at 14~GB; 25~s
-for LLaMA-70B INT8 at 70~GB) based on NVMe sequential read
-bandwidth.
-
-\textbf{M2: Prefill--Decode Two-Phase Tasks with KV Cache.}
-Each inference request decomposes into a (Prefill, Decode)
-pair sharing a \texttt{req\_id}. The Prefill task carries
-\texttt{prompt\_tokens}; the Decode task carries
-\texttt{output\_tokens} and depends on Prefill. We compute
-task workload as $\text{prompt\_tokens} \cdot
-\text{prefill\_tflops}/k$ and $\text{output\_tokens} \cdot
-\text{decode\_tflops}/k$ per the published model architecture
-parameters. The key design choice is \textbf{encoding KV cache
-size into \texttt{prefill.output\_size}} (computed as
-$\text{prompt\_tokens} \cdot \text{kv\_cache\_MB\_per\_token}
-/1024$~GB). This lets the simulator's existing transfer-time
-formula (\texttt{output\_size} $\div$ link bandwidth)
-automatically account for the \textbf{KV-migration cost} if
-Decode is scheduled to a different server than Prefill---no
-additional code paths are required. Additionally, each phase
-task carries a \texttt{kv\_cache\_GB} field that contributes
-to GPU VRAM occupancy during execution, realistically modeling
-memory pressure from active sequences.
-
-\textbf{M3: Continuous Batching.} When a task is admitted to a
-server, we count the number of currently running same-model
-same-kind tasks (\texttt{batch\_size\_at\_admit}) and compute
-its effective execution time as $T_{\text{solo}} \cdot
-(1 + (\text{batch\_size} - 1) \cdot \text{overhead})$, with
-phase-specific overhead constants (5\% per request for decode,
-30\% for prefill, matching vLLM measurements). The server
-enforces \texttt{max\_batch\_size} as admission control: a new
-task arriving when the same-model same-kind batch is already
-at capacity is rejected (\texttt{can\_allocate = False}) until
-a slot frees. To distinguish batching's role from na\"ive
-concurrent execution, our \texttt{--ablation no\_batching}
-mode disables this mechanism \emph{and} enforces serial GPU
-usage for inference tasks (one inference task per server at a
-time), modeling the behavior of an inference engine without
-iteration-level batching support.
-
-\textbf{M4: Memory-Bandwidth Floor and Realistic Workloads.}
-Real LLM decode is memory-bandwidth-bound: even with infinite
-compute capacity, each output token takes a floor of $\sim$20~ms
-on A100-class GPUs due to HBM bandwidth limits. We model this
-by computing effective execution time as
-$\max(\text{workload} \div \text{compute\_capacity},
-\text{floor\_per\_token} \cdot \text{tokens})$, with per-model
-floor constants (LLaMA-7B: 20~ms/token decode, 1~ms/token
-prefill; scaling proportionally to model size up to LLaMA-70B's
-80~ms/token decode). Without this floor, our simulator would
-produce unrealistic sub-millisecond TPOT values that fail to
-reflect the dominant production bottleneck. M4 also introduces
-Poisson arrival modeling (adding an \texttt{arrival\_time}
-field to each task that gates the
-\texttt{WAITING}~$\to$~\texttt{READY} transition) and
-log-normal prompt/output length distributions calibrated to
-Azure LLM Inference Trace 2023 statistics
-($\text{prompt } \mu_{\log}=5.5,\ \sigma_{\log}=1.0$;
-$\text{output } \mu_{\log}=4.5,\ \sigma_{\log}=1.2$).
-
-\textbf{Energy Model.} To support multi-objective evaluation,
-the simulator tracks per-server energy consumption using a
-linear-in-utilization power model:
-$P(t) = \text{idle\_W} +
-(\text{max\_W} - \text{idle\_W}) \cdot
-\text{compute\_util}(t)$, with per-tier coefficients calibrated
-to NVIDIA TDPs (cloud A100: 50--400~W; edge A100: 30--250~W;
-T4: 20--70~W; Jetson AGX Orin: 10--30~W). Total energy is
-accumulated as $E \mathrel{+}= P(t) \cdot \Delta t$ at each
-simulation step; energy per token is computed as system-wide
-total energy divided by completed output tokens. The
-non-monotonic relation between compute capacity and power
-efficiency (T4 has the best efficiency ratio despite mid-tier
-compute) is crucial for our multi-objective evaluation---a
-scheduler favoring ``always-cloud'' will have poor energy
-efficiency even with low latency.
-
-\textbf{Output Interface.} The simulator exposes a standard
-\texttt{scheduler.schedule()} interface called once per
-simulation step. Schedulers receive read-only access to the
-full \texttt{Simulation} object (tasks, servers, network) and
-must populate \texttt{task.assigned\_server} and call
-\texttt{server.add\_task(task, priority)} for each
-\texttt{READY} task they choose to dispatch. This minimal
-interface allows any scheduler---from a 50-line round-robin
-to our PPO agent---to be swapped in without simulator
-modification, supporting fair controlled comparisons.
-
-\textbf{End-to-end architecture.} Fig.~\ref{fig:simulator-arch}
-summarizes the full simulator data flow: trace sources
-(\texttt{uniform}/\texttt{lognormal} presets, \texttt{ModelCatalog})
-feed a workload generator that emits prefill/decode DAGs;
-the simulator's \texttt{step()} loop transitions tasks
+event-driven environment with a 0.1~s step. Each step
+(a)~releases completed tasks, (b)~promotes
 \texttt{WAITING}~$\to$~\texttt{READY} as dependencies and
-arrival times allow, invokes the scheduler, and dispatches
-admitted tasks to heterogeneous servers (which model the four
-AIGC physics M1--M4 plus the energy meter); per-checkpoint
-common and AIGC metrics are then persisted alongside a
-reproducibility manifest. The same architecture supports
-every baseline and ablation in \S\ref{sec:eval}.
+arrival times allow, (c)~invokes the scheduler, and
+(d)~starts admitted tasks and accumulates per-server energy.
+The five AIGC physics are realized as four engineering
+milestones M1--M4.
+
+\textbf{M1: Model weight residency.} Each server tracks
+\texttt{loaded\_models} with reference counts; an unloaded
+model triggers LRU eviction of unpinned models and a
+\texttt{cold\_load\_sec} delay (5~s for LLaMA-7B / 14~GB,
+25~s for LLaMA-70B-INT8 / 70~GB; calibrated to NVMe
+sequential read).
+
+\textbf{M2: Prefill--Decode two-phase tasks with KV cache.}
+Each request decomposes into (Prefill, Decode) sharing
+\texttt{req\_id}; per-phase workload is
+\texttt{tokens$\cdot$prefill\_tflops}/$k$ and the analogous
+decode form. We encode KV size into
+\texttt{prefill.output\_size}
+($\text{prompt\_tokens}\cdot\kappa_m/1024$~GB), so the existing
+transfer-time formula automatically charges
+\textbf{KV-migration cost} whenever Decode lands on a server
+other than where Prefill ran---no extra code paths. Each task
+also carries \texttt{kv\_cache\_GB} occupying VRAM during
+execution.
+
+\textbf{M3: Continuous batching.} An admitted task counts the
+running same-model same-kind tasks
+(\texttt{batch\_size\_at\_admit}) and pays effective time
+$T_{\text{solo}}(1+(\text{batch\_size}-1)\cdot\beta_k)$ with
+$\beta_{\text{decode}}{=}0.05$ and
+$\beta_{\text{prefill}}{=}0.30$ (matched to vLLM). The
+\texttt{--ablation no\_batching} switch disables batching
+\emph{and} serializes inference on each GPU---modeling an
+engine without iteration-level batching.
+
+\textbf{M4: Memory-bandwidth floor + realistic workloads.}
+Decode is memory-bandwidth-bound; we cap effective time by a
+per-model token floor $\phi_m$ (20~ms/tok decode for
+LLaMA-7B, scaling to 80~ms/tok for LLaMA-70B). M4 also adds
+Poisson arrival (\texttt{arrival\_time} gates
+\texttt{READY}) and log-normal prompt/output lengths
+calibrated to Azure LLM Inference Trace 2023
+(prompt $\mu_{\log}{=}5.5,\sigma{=}1.0$;
+output $\mu_{\log}{=}4.5,\sigma{=}1.2$).
+
+\textbf{Energy model.} Each server's instantaneous power is
+$P(t) = \text{idle\_W} + (\text{max\_W}-\text{idle\_W})\cdot
+u_s(t)$ with per-tier coefficients calibrated to NVIDIA TDPs
+(cloud A100: 50--400~W; edge A100: 30--250~W; T4: 20--70~W;
+Jetson AGX Orin: 10--30~W). System energy per token is the
+integrated power divided by completed output tokens.
+
+The simulator exposes a one-call
+\texttt{scheduler.schedule()} interface (read-only access to
+tasks/servers/network; dispatch via
+\texttt{server.add\_task}), so any scheduler---from
+50-line RoundRobin to our PPO agent---can be swapped in
+without environment changes. Fig.~\ref{fig:simulator-arch}
+shows the end-to-end data flow.
 
 \begin{figure*}[t]
   \centering
@@ -154,140 +94,74 @@ every baseline and ablation in \S\ref{sec:eval}.
 \subsection{AIGC-Aware Reinforcement Learning Scheduler}
 \label{sec:rl}
 
-Our scheduler casts request dispatch as a Markov Decision
-Process where the agent makes a per-task discrete server
-choice. Below we describe the state, action, and reward
-designs that expose AIGC physics to the policy, followed by
-the PPO training procedure.
+We cast per-task dispatch as an MDP and solve it with PPO.
 
-\textbf{State Space.} For each \texttt{READY} task awaiting
-dispatch, the encoder produces a flat feature vector of
-dimension $(10 + |\mathcal{M}|) + 2 + 10 \cdot N$, where
-$|\mathcal{M}|$ is the number of models in the catalog and $N$
-is the number of servers. The vector concatenates three
-blocks:
+\textbf{State.} For each \texttt{READY} task the encoder emits
+a flat vector of dimension $(10+|\mathcal{M}|)+2+10N$ holding
+three blocks: a \emph{task block} (compute demand, workload,
+input/output size, dependency/successor counts, task-kind
+one-hot, normalized KV-cache size, and a model-ID one-hot),
+a 2-dim \emph{global block} (\texttt{READY} queue size,
+completed ratio), and a $10$-dim per-server block of five
+general features (compute/memory utilization, bandwidth,
+queue length, transfer-time estimate) followed by five
+\textbf{AIGC-specific features}: (i)~loaded-model
+indicator, (ii)~normalized batch occupancy, (iii)~free VRAM
+fraction, (iv)~normalized cold-load cost, and
+(v)~\emph{sibling-server indicator}---for Decode, whether
+the candidate server is where Prefill ran. The sibling
+indicator is novel: it gives the policy direct read-access
+to KV-cache locality without reasoning about request IDs.
+For edge${=}5$, $|\mathcal{M}|{=}4$, the state dimension is
+96.
 
-\begin{itemize}
-\item \emph{Task block} ($10 + |\mathcal{M}|$ dims): compute
-  demand, workload, input size, output size, dependency count,
-  successor count, task-kind one-hot (Generic/Prefill/Decode),
-  normalized KV-cache size, and a model-ID one-hot. The model
-  one-hot is the most informative AIGC-specific feature,
-  encoding \emph{which} model the task needs.
+\textbf{Action.} Discrete choice over the $N$ servers with
+\textbf{action masking} (probability zero whenever
+\texttt{can\_allocate} fails); the mask is recomputed at
+every dispatch.
 
-\item \emph{Global block} (2 dims): \texttt{READY}-queue size
-  and completed-task ratio, providing horizon context.
-
-\item \emph{Per-server block} (10 dims $\times N$ servers):
-  five general-purpose features (compute utilization, memory
-  utilization, bandwidth, queue length, transfer time estimate
-  to this server) followed by five \textbf{AIGC-specific
-  features}: (1) whether the current task's model is loaded
-  on this server, (2) batch occupancy normalized to
-  \texttt{max\_batch\_size}, (3) free VRAM fraction,
-  (4) normalized cold-load cost for this task's model on this
-  server, and (5) \emph{sibling-server indicator}---for Decode
-  tasks, whether this server is where the corresponding
-  Prefill ran.
-\end{itemize}
-
-The sibling-server indicator is the most novel feature: it
-gives the policy direct read-access to KV-cache locality
-without requiring it to reason about request IDs. For canonical
-edge${=}5$, $|\mathcal{M}|{=}4$ models, the total state
-dimension is 96.
-
-\textbf{Action Space.} Discrete choice over the $N$ servers,
-with \textbf{action masking} to zero out the probability of any
-infeasible server (where \texttt{can\_allocate(task) = False}).
-Masking prevents the agent from wasting samples on illegal
-actions and stabilizes training. The mask is re-computed at
-every dispatch decision.
-
-\textbf{Reward Function.} A weighted sum of seven components,
-balancing throughput, fairness, AIGC awareness, and energy:
+\textbf{Reward.} A weighted sum of seven dense per-decision
+components,
 \begin{equation}
   \label{eq:reward}
   \begin{aligned}
-    r =\;& 0.25 \cdot r_{\text{time}}
-        + 0.10 \cdot r_{\text{balance}}
-        + 0.10 \cdot r_{\text{match}} \\
-       &+ 0.15 \cdot r_{\text{warm}}
-        + 0.20 \cdot r_{\text{batch}}
-        + 0.10 \cdot r_{\text{affinity}} \\
-       &+ 0.10 \cdot r_{\text{cloud}}.
+    r =\;& 0.25\,r_{\text{time}}
+        + 0.10\,r_{\text{balance}}
+        + 0.10\,r_{\text{match}} \\
+       &+ 0.15\,r_{\text{warm}}
+        + 0.20\,r_{\text{batch}}
+        + 0.10\,r_{\text{affinity}}
+        + 0.10\,r_{\text{cloud}},
   \end{aligned}
 \end{equation}
-The first three components are standard load-balancing
-signals: $r_{\text{time}}$ favors low total execution time,
-$r_{\text{balance}}$ discourages overloading any single
-server, $r_{\text{match}}$ prefers servers whose compute
-roughly matches task demand. The next three are AIGC-specific:
+combining three load-balancing signals
+($r_{\text{time}}, r_{\text{balance}}, r_{\text{match}}$
+penalize long completion, server overload, and capacity
+mismatch) with four AIGC-specific signals: $r_{\text{warm}}$
+($+1$ if the model is already loaded, else
+$-\text{cold\_load}/20$ clipped to $[-1,0]$);
+$r_{\text{batch}}$ rewards joining existing same-model
+batches (weighted higher for Decode);
+$r_{\text{affinity}}$ rewards co-locating Decode with its
+Prefill ($+1$) and penalizes non-trivial KV migration
+($-0.5$); and $r_{\text{cloud}}$ ($-u_{\text{cloud}}$
+when an edge alternative exists) discourages an
+``always-cloud'' attractor we observed in early experiments
+(see \S\ref{sec:implications}).
 
-\begin{itemize}
-\item $r_{\text{warm}}$ ($+1$ if model already loaded on chosen
-  server; $-\text{cold\_load\_sec}/20$ otherwise, clipped to
-  $[-1, 0]$) directly rewards avoiding cold loads.
-
-\item $r_{\text{batch}}$ (proportional to existing same-model
-  batch size on the chosen server, weighted higher for Decode
-  whose batching is more efficient) rewards joining existing
-  batches to capture throughput multipliers.
-
-\item $r_{\text{affinity}}$ ($+1$ if chosen server hosts the
-  sibling Prefill; $-0.5$ if not and the KV cache to migrate is
-  non-trivial) rewards keeping KV cache local.
-\end{itemize}
-
-Finally, $r_{\text{cloud}}$ ($-\text{cloud\_util}$, applied
-only when an edge alternative could serve the task) is a
-diagnostic-driven addition that prevents the policy from
-collapsing to an ``always-cloud'' attractor we observed in
-early experiments. Without this term, PPO learned a degenerate
-policy of routing nearly all traffic to the cloud server,
-ignoring AIGC signals entirely (analyzed in our diagnostic
-appendix). With it, the policy properly explores edge
-alternatives and learns AIGC-aware placement.
-
-\textbf{Policy Architecture.} A three-layer MLP encoder
-($\text{state\_dim} \to 256 \to 128 \to 64$ with LayerNorm and
-ReLU) produces a shared feature representation, which an Actor
-head (Linear $\to$ softmax-with-mask) maps to action
-probabilities and a Critic head (Linear $\to$ ReLU $\to$
-Linear) maps to the value estimate. We deliberately use a
-feedforward architecture rather than a graph or recurrent
-encoder; our ablation (\S\ref{sec:eval}) and comparison against
-the GNN variant show this choice does not sacrifice
-performance under practical training budgets.
-
-\textbf{Training Procedure.} We train with Proximal Policy
-Optimization (PPO)~\cite{schulman2017ppo} using clipped
-surrogate objective ($\epsilon = 0.2$), Generalized Advantage
-Estimation~\cite{schulman2015gae} ($\gamma = 0.95$,
-$\lambda = 0.90$), and entropy regularization (coefficient
-$0.05$, reduced to $0.01$ after pretraining). The trajectory
-buffer accumulates 32 transitions before each PPO update; each
-update performs 4 epochs over the buffered data. Action
-masking is applied during both action sampling and policy
-log-probability computation.
-
-\textbf{Pretraining.} A critical practical detail: we precede
-online training with 20 episodes of pretrain on the target
-workload. Pretrain is essential: without it, the policy
-converges to a degenerate ``always-cloud'' attractor
-(\S\ref{sec:eval} shows a $-38\%$ \slo{} drop from disabling
-pretrain). With 20 pretrain episodes ($\approx$10--15 seconds
-wall-clock), the policy escapes this attractor and learns
-meaningful per-task placement decisions. We initialize pretrain
-with 30 \emph{warmup} steps of uniform random action sampling
-to encourage diverse experience collection before
-policy-gradient updates begin.
-
-\textbf{Ablation Interface.} Each component above is gated by
-a constructor flag (\texttt{enable\_warm\_reward},
-\texttt{enable\_aigc\_state}, etc.), enabling the systematic
-12-component ablation analyzed in \S\ref{sec:eval}. Disabling
-all AIGC components reduces our scheduler to a generic PPO
-baseline operating only on base features---directly testing
-whether AIGC awareness provides measurable value beyond
-standard RL machinery.
+\textbf{Architecture and training.} A 3-layer MLP encoder
+($\text{state} \to 256 \to 128 \to 64$, LayerNorm + ReLU)
+feeds an Actor (Linear $\to$ softmax-with-mask) and a Critic
+(Linear $\to$ ReLU $\to$ Linear). We train with
+PPO~\cite{schulman2017ppo} (clip $\epsilon{=}0.2$),
+GAE~\cite{schulman2015gae} ($\gamma{=}0.95$,
+$\lambda{=}0.90$), and entropy regularization ($0.05$,
+reduced to $0.01$ after pretraining); each update sees 32
+buffered transitions across 4 epochs. Crucially, we precede
+online training with \textbf{20 episodes of pretrain}
+(${\approx}$10--15~s wall-clock) initialized by 30 uniform
+random warm-up steps; without this, the policy collapses to
+``always-cloud'' and \slo{} drops $38\%$ (\S\ref{sec:ablation}).
+Each AIGC component is gated by a constructor flag, enabling
+the systematic 12-component ablation in
+\S\ref{sec:ablation}.

@@ -4,150 +4,66 @@
 \section{Related Work}
 \label{sec:related}
 
-Our work intersects four established lines of research:
-(\S\ref{sec:rel-serving}) LLM serving systems,
-(\S\ref{sec:rel-cluster}) cluster scheduling,
-(\S\ref{sec:rel-rl}) reinforcement learning for scheduling,
-and (\S\ref{sec:rel-aigc}) AIGC-specific scheduling. We
-additionally discuss (\S\ref{sec:rel-sim}) simulation
-platforms relevant to AIGC scheduling research.
+\textbf{LLM serving systems.}
+Orca~\cite{yu2022orca} introduced iteration-level continuous
+batching, vLLM~\cite{kwon2023vllm} added PagedAttention
+for non-contiguous KV allocation
+(2--4$\times$ throughput), and
+Sarathi-Serve~\cite{agrawal2024sarathi} introduced chunked
+prefill to mitigate generation stalls in mixed batches. These
+optimize \emph{within} a single server's GPU and are
+\textbf{orthogonal} to our cross-server scheduling: our
+admission-time batching is a tractable abstraction of their
+iteration-level batching, and our RL's per-request placement
+decisions would propagate into vLLM-style engines unchanged.
 
-\subsection{LLM Serving Systems}
-\label{sec:rel-serving}
-
-A wave of recent systems has dramatically improved
-single-server LLM serving efficiency.
-\textbf{Orca}~\cite{yu2022orca} introduced iteration-level
-continuous batching, allowing requests to join and leave a
-running batch at any decoder step rather than waiting for
-batch completion. \textbf{vLLM}~\cite{kwon2023vllm} extended
-this with \textbf{PagedAttention}, fragmenting the KV cache
-into fixed-size pages that can be allocated non-contiguously,
-eliminating internal fragmentation and enabling $2$--$4\times$
-throughput improvements.
-\textbf{Sarathi-Serve}~\cite{agrawal2024sarathi} introduced
-\emph{chunked prefill}---decomposing long prefill phases into
-multiple shorter chunks---to mitigate generation stalls in
-mixed prefill/decode batches. NVIDIA's TensorRT-LLM provides
-production-grade kernels with similar batching capabilities.
-
-These systems are \textbf{orthogonal to our work}: they
-optimize within a single server's GPU, whereas we schedule
-requests across a heterogeneous cloud-edge pool. Our
-simulator's admission-time batching model is a tractable
-abstraction of their iteration-level batching; cross-server
-scheduling decisions made by our RL would propagate into
-vLLM-like engines at deployment time without architectural
-change.
-
-\subsection{Cluster Scheduling and Heuristics}
-\label{sec:rel-cluster}
-
-The cluster-scheduling literature predating LLM workloads
-spans heuristic and metaheuristic approaches.
-\textbf{HEFT}~\cite{topcuoglu2002heft} remains the canonical
-static heuristic, computing upward-rank task priorities and
-assigning each task to the server minimizing earliest finish
-time. \textbf{Genetic
-Algorithms}~\cite{holland1975adaptation} and \textbf{Particle
-Swarm Optimization}~\cite{kennedy1995pso} are population-based
-metaheuristics widely applied to scheduling fitness
-landscapes. Industry deployments typically use simpler
+\textbf{Cluster scheduling.}
+HEFT~\cite{topcuoglu2002heft} computes upward-rank task
+priorities for static DAG assignment; genetic
+algorithms~\cite{holland1975adaptation} and
+PSO~\cite{kennedy1995pso} apply population-based search to
+scheduling fitness landscapes; industry uses simpler
 load-balancing primitives (Round-Robin, Least-Loaded,
-Shortest-Queue) for their operational predictability.
+Shortest-Queue). We compare against all of these in
+\S\ref{sec:eval}; none natively encodes AIGC physics.
 
-We compare against all of these in \S\ref{sec:eval}. None
-natively encodes AIGC physics; adapting them would require
-hand-engineering of AIGC-aware cost functions---an exercise
-that motivates our learning-based approach.
-
-\subsection{Reinforcement Learning for Scheduling}
-\label{sec:rel-rl}
-
-DRL-based scheduling has matured through several
-representative works. \textbf{Decima}~\cite{mao2019decima}
-uses a graph neural network over Spark DAG structure with
-REINFORCE-style training, demonstrating that RL can learn
-workload-specific policies outperforming hand-tuned
-heuristics.
-\textbf{RLScheduler}~\cite{zhang2020rlscheduler} applies
-kernel-based RL to HPC batch jobs.
-\textbf{A3C-R2N2}~\cite{tuli2022a3cr2n} uses asynchronous
+\textbf{RL for scheduling.}
+Decima~\cite{mao2019decima} uses a GNN over Spark DAG
+structure with REINFORCE; RLScheduler~\cite{zhang2020rlscheduler}
+applies RL to HPC batch jobs;
+A3C-R2N2~\cite{tuli2022a3cr2n} uses asynchronous
 actor-critic with a residual recurrent encoder for edge-cloud
-IoT task scheduling---the closest predecessor to our work in
-deployment topology, though predating the AIGC era.
+IoT tasks---the closest predecessor in deployment topology
+but predating the AIGC era. We benchmark A3C-R2N2 as a
+\textbf{controlled baseline} (\S\ref{sec:main-results}):
+holding actor-critic constant isolates the AIGC contribution
+of our state and reward design ($+28\%$ \slo, $-7\%$ \etok,
+$p<0.05$). We also implement a Decima-style GNN variant and
+find that, under realistic training budgets, a feedforward
+MLP with explicit AIGC features matches or exceeds the GNN's
+relational reasoning---a departure from Decima's original
+Spark-DAG findings.
 
-We position our RL scheduler against this lineage by
-\textbf{directly benchmarking A3C-R2N2 as a controlled
-baseline} in \S\ref{sec:eval}. Holding the actor-critic
-algorithm constant, the only differences are (i) our
-AIGC-aware state encoding and (ii) our AIGC-aware reward
-shaping. The Pareto improvement we measure
-(\S\ref{sec:main-results}: \slo{} $+28\%$, energy $-7\%$, both
-$p<0.05$) is thus attributable to AIGC awareness specifically,
-not to general RL machinery. We also implement a \textbf{GNN
-variant} inspired by Decima's encoder structure, finding that
-under realistic training budgets a feedforward MLP with
-explicit AIGC features matches or exceeds the GNN's
-relational reasoning---an interesting departure from Decima's
-original Spark-DAG findings.
+\textbf{AIGC-specific scheduling.} Splitwise, DistServe, and
+Llumnix~\cite{patel2024splitwise,zhong2024distserve,sun2024llumnix}
+(\S\ref{sec:bg-cloudedge}) design \emph{deployment topologies}
+(phase splitting, disaggregated pools) and
+\emph{intra-cluster reactive policies} (mid-flight
+migration), treating initial request placement as orthogonal.
+\textbf{Our work attacks the initial placement problem}: the
+two strands compose---Llumnix-style migration could refine
+our placements at runtime; our scheduler could populate
+prefill/decode pools in a Splitwise-style deployment.
 
-\subsection{AIGC-Specific Scheduling}
-\label{sec:rel-aigc}
-
-The newest research wave addresses LLM-specific scheduling
-properties directly. \textbf{Splitwise}~\cite{patel2024splitwise}
-proposes \textbf{phase splitting}: routing prefill to
-compute-rich GPUs (H100) and decode to memory-rich GPUs
-(A100), with explicit KV-cache transfer across the
-disaggregation boundary.
-\textbf{DistServe}~\cite{zhong2024distserve} co-optimizes
-resource allocation and parallelism strategy across
-disaggregated prefill/decode pools.
-\textbf{Llumnix}~\cite{sun2024llumnix} performs runtime
-request \emph{migration} across model instances to address
-request heterogeneity, treating each instance as a ``CPU
-core'' in an operating-system-style scheduling abstraction.
-
-These works share our motivation---LLM workloads need
-LLM-aware scheduling---but address a different problem layer:
-they design \emph{deployment topologies} (which GPUs serve
-which phase) and \emph{intra-cluster reactive policies}
-(mid-flight migration), assuming a fixed topology and
-treating \emph{initial request placement} as orthogonal.
-\textbf{Our work attacks the initial placement problem}:
-given a fixed heterogeneous pool, learn a per-request
-server-selection policy that co-optimizes \slo{} attainment
-and energy efficiency. The two strands compose: Llumnix-style
-migration could refine our scheduler's initial placement at
-runtime, and our scheduler could populate prefill/decode
-pools in a Splitwise-style deployment.
-
-\subsection{Simulation Platforms}
-\label{sec:rel-sim}
-
-Several open-source simulators have supported scheduling
-research: \textbf{CloudSim}~\cite{calheiros2011cloudsim} and
-\textbf{iFogSim}~\cite{gupta2017ifogsim} for general
-cloud-fog workloads;
-\textbf{WorkflowSim}~\cite{chen2012workflowsim} for DAG
-workflows. None of these models the AIGC-specific physics
-central to our work (model weights, KV cache, continuous
-batching, memory-bandwidth floors). A handful of recent
-open-source projects target LLM serving simulation, but to
-our knowledge they focus on intra-server batching dynamics
-(modeling the behavior of a single inference engine) rather
-than cross-server scheduling across heterogeneous pools.
-
-To our knowledge, our simulator (\S\ref{sec:simulator}) is the
-first open-source platform combining three properties:
-(i)~modeling all five AIGC physics listed in \S\ref{sec:intro}
-(model-weight residency, KV-cache locality, continuous
-batching, memory-bandwidth floor, two-phase request
-lifecycle); (ii)~focusing on cross-server scheduling across
-heterogeneous pools rather than intra-server batching
-dynamics; (iii)~supporting multi-objective (\slo{}~+~energy)
-evaluation natively rather than as a post-hoc analysis. We
-release it with reproducibility manifests for the 30+
-configurations reported in \S\ref{sec:eval}, hoping to lower
-the activation energy for future AIGC scheduling research.
+\textbf{Simulation platforms.}
+CloudSim~\cite{calheiros2011cloudsim},
+iFogSim~\cite{gupta2017ifogsim}, and
+WorkflowSim~\cite{chen2012workflowsim} target general
+cloud-fog or DAG workloads without AIGC physics; recent
+LLM-serving simulators model intra-server batching dynamics
+rather than cross-server scheduling. To our knowledge our
+simulator (\S\ref{sec:simulator}) is the first open-source
+platform combining all five AIGC physics, cross-server
+scheduling focus, and native multi-objective (\slo{}~+~energy)
+evaluation. We release it with reproducibility manifests for
+the 30+ configurations in \S\ref{sec:eval}.
