@@ -1,0 +1,18 @@
+# LaTeX 构建产物 — 不入库
+*.aux
+*.log
+*.bbl
+*.blg
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+sections/*.aux
+
+# 构建出的 PDF
+main.pdf
+
+# 覆盖根 *.pdf 规则，让图源 PDF 入库
+!figures/*.pdf

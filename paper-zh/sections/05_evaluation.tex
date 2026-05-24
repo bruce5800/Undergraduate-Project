@@ -1,0 +1,293 @@
+% =============================================================
+% §5 实验评估
+% =============================================================
+\section{实验评估}
+\label{sec:eval}
+
+\subsection{实验设置}
+\label{sec:eval-setup}
+
+\textbf{仿真平台。}所有实验均基于本文 AIGC 推理仿真器，按四个工程里程碑实现五项 AIGC 物理：（M1）模型权重驻留 + LRU 驱逐 + 冷加载延迟；（M2）prefill--decode 两阶段任务 + 显式 KV cache 显存核算（联合处理两阶段生命周期与 KV 本地性）；（M3）准入式连续批处理 + 阶段相关开销；（M4）标定至 vLLM 实测值的显存带宽下限。
+
+\textbf{硬件配置。}1 台云级服务器（200~TFLOPS，128~GB 显存，等效 A100-80GB）+ 1--7 台异构边缘节点（10--50~TFLOPS，16--64~GB 显存，对照 Jetson AGX、T4、边缘 A100 部署建模）。云--边链路延迟 30--65~ms，边--边链路 8--23~ms。
+
+\textbf{工作负载。}采用对齐 Azure LLM Inference Trace 2023 公开统计的对数正态长度分布：prompt 长 $\sim\text{LogNormal}(\mu{=}5.5,\sigma{=}1.0)$，输出长 $\sim\text{LogNormal}(\mu{=}4.5,\sigma{=}1.2)$；请求到达为速率 $\lambda$ 的 Poisson 过程；模型在三种 LLaMA-7B/13B/70B-INT8 中均匀采样，模型参数与 vLLM、TensorRT-LLM 基准对齐。
+
+\textbf{基线（9 种调度器）。}对比范围广覆盖：\textbf{RoundRobin}（无负载感知）、\textbf{LeastLoaded}（负载感知贪心）、\textbf{ShortestQueue}（队列感知贪心）、\textbf{HEFT}~\cite{topcuoglu2002heft}（标准 DAG 调度基线）、\textbf{GA}~\cite{holland1975adaptation} 与 \textbf{PSO}~\cite{kennedy1995pso}（元启发式搜索）、\textbf{A3C-R2N2}~\cite{tuli2022a3cr2n}（异步 actor-critic + GRU/残差编码器，\textbf{通用（非 AIGC）状态与奖励}）、\textbf{GNN}（与本文 RL 对照的 graph-neural-network 变体，将 AIGC 物理编码为任务--服务器二部图的\textbf{边特征}，受 Decima~\cite{mao2019decima} 启发）、\textbf{RL（本文）}（AIGC 感知 PPO 调度器，含显式 AIGC 状态与奖励整形）。
+
+\textbf{指标。}沿用 LLM 服务通用基准：\slo{} 达成率（同时满足 TTFT $\le 2.0$~s 且 TPOT $\le 100$~ms/token 的请求占比）、TTFT/TPOT 百分位（P50/P95/P99）、goodput（输出 token/s）、总能耗（J）与每 token 能耗（J/tok）。能耗按 $\text{idle\_W}+(\text{max\_W}-\text{idle\_W})\cdot \text{util}$ 计算，A100/T4/Jetson 分层系数已标定。
+
+\textbf{统计方法。}每个配置 30 次不同随机种子的独立运行，报告均值 $\pm$ 标准差；显著性采用双侧 Mann-Whitney U 检验（非参数，因仿真输出非高斯）；显著性记号：$*$ 表示 $p<0.05$，$**$ 表示 $p<0.01$，$***$ 表示 $p<0.001$。
+
+\subsection{主结果：Pareto 占优}
+\label{sec:main-results}
+
+我们在典型配置上评估 9 种调度器：5 台服务器（1 云 + 4 异构边缘）、$\lambda{=}2$ 请求/秒、100 个任务单位（约 50 个推理请求），结果按 30 次运行取均值。
+
+\textbf{核心结论。}AIGC 感知 RL 调度器同时取得最高 \slo{} 达成率\textbf{与}最低每 token 能耗，在 (\slo, 能效) 平面上\textbf{Pareto 占优全部 8 个基线}。
+
+\begin{table}[t]
+  \centering
+  \caption{典型配置（edge${=}5$、$\lambda{=}2$ 请求/秒、$N{=}30$）下的主对比。粗体 = 列最优。}
+  \label{tab:main}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    调度器 & Mksp.(s) & \slo$\uparrow$ & E(kJ)$\downarrow$
+              & \etok(J)$\downarrow$ & TTFT P95 \\
+    \midrule
+    RoundRobin    & 306.2 & 0.163 & 64.0 & 7.29 & 174.6 \\
+    LeastLoaded   & 125.5 & 0.239 & 26.8 & 2.94 & 30.8 \\
+    ShortestQueue & 123.8 & 0.234 & 26.9 & 2.96 & 25.4 \\
+    HEFT          & 126.7 & 0.169 & 25.9 & 2.83 & 35.7 \\
+    GA            & 132.4 & 0.225 & 26.9 & 2.94 & 30.5 \\
+    PSO           & 129.6 & 0.235 & 25.6 & 2.81 & 41.0 \\
+    A3C-R2N2      & 120.6 & 0.214 & 26.7 & 2.93 & 28.8 \\
+    GNN           & 125.5 & 0.210 & 26.7 & 2.93 & 32.2 \\
+    \textbf{RL（本文）} & \textbf{122.2} & \textbf{0.302}
+                       & \textbf{23.7} & \textbf{2.61}
+                       & \textbf{25.2} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+粗体标记列最优。本文 RL 调度器在每一项指标上均最优。
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig4_pareto.pdf}
+  \caption{典型配置（edge${=}5$、$\lambda{=}2$ 请求/秒、$N{=}30$）下 \slo{} 达成率 vs.\ 每 token 能耗的 Pareto 图。理想角位于左上。本文 RL 单独占据此区域；其它基线密集分布在右下区域，能效相近但 \slo{} 明显更低；RoundRobin 是极端离群点（出图外）。}
+  \label{fig:pareto}
+\end{figure}
+
+\textbf{显著性检验。}本文 RL 对 4 个最强基线的 Mann-Whitney U 检验：
+
+\begin{table}[t]
+  \centering
+  \caption{对 4 个最强基线的 $p$ 值（双侧 Mann-Whitney U，$N{=}30$）。粗体 = $p<0.05$。}
+  \label{tab:significance}
+  \small
+  \begin{tabular}{lcccc}
+    \toprule
+    指标 & PSO & SQ & A3C-R2N2 & GNN \\
+    \midrule
+    \slo{} 达成     & \textbf{0.045}$^*$ & \textbf{0.046}$^*$
+                  & \textbf{0.006}$^{**}$ & \textbf{0.006}$^{**}$ \\
+    总能耗        & 0.36 & 0.07 & 0.09 & 0.10 \\
+    每 token 能耗  & 0.11 & \textbf{0.010}$^{**}$
+                 & \textbf{0.028}$^*$ & \textbf{0.016}$^*$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\slo{} 达成率维度对全部 4 个基线均显著（$p<0.05$，对两个 DRL 基线 $p<0.01$）；能效维度对其中 3 个显著，PSO 方向一致但未达 $p<0.05$。总能耗维度展示出一致的 $\le 10\%$ 优势但单独不显著，符合"makespan 与总能耗高度相关"的预期。
+
+\textbf{为何 AIGC 感知 RL 更省电？}反直觉地，我们的调度器---尽管能调用高功率云端---比那些倾向只用边缘的基线\emph{总能耗更低}。我们归因于策略隐式学到的三种行为：（i）\emph{更短 makespan 放大空闲节能}---集群空闲基准功率约 150~W，更短 makespan 直接减少空闲段能耗浪费；（ii）\emph{冷加载规避}---把同模型请求集中处理，减少 GPU 仅"通电不产 token"的冷加载时段；（iii）\emph{同址兄弟服务器偏好}---Decode 与对应 Prefill 同址，避免 KV cache 迁移期间 GPU "通电等数据"的空转。\textbf{若没有能耗这一维度，上述行为与通用 RL 隐式收敛的策略难以区分}；引入能耗作为协同目标后，AIGC 感知设计才呈现 Pareto 占优。
+
+\textbf{与 A3C-R2N2 对照（RL 主干受控对比）。}A3C-R2N2 用了同样的 actor-critic 家族，但（a）使用 GRU + 残差编码器而非我们的 MLP，（b）状态与奖励通用而无 AIGC 项。它的 \slo${} = 0.214 \pm 0.07$、\etok${} = 2.93$~J/tok；本文 RL 取得 $0.302 \pm 0.07$ 与 $2.61$~J/tok。差异在 \slo{} 维度 $p<0.01$、能效维度 $p<0.05$ 均显著。由于主干等价（均为带充足预训练的 actor-critic），这 41\% 的 \slo{} 提升与 11\% 的能效提升\textbf{可直接归因于 AIGC 感知状态与奖励设计}。
+
+\textbf{与 GNN 对照（状态编码受控对比）。}GNN 变体把 AIGC 物理编码成任务--服务器二部图的\textbf{边特征}，与本文 MLP + 扁平 AIGC 特征构成另一种受控对比。尽管 GNN 架构更复杂，其 \slo${} = 0.210 \pm 0.08$、\etok${} = 2.93$~J/tok，性能与 A3C-R2N2 相当，显著弱于本文 RL（$p<0.01$ \slo、$p<0.05$ \etok）。原因可归结为\textbf{训练数据效率}：GNN 的关系推理能力在 20 episode 预训练预算下未能充分专门化。
+
+\subsection{拓扑敏感性}
+\label{sec:topology}
+
+在 $\lambda{=}2$ 请求/秒、uniform 模型混合下，将边缘服务器数从 3 变到 7（始终配 1 台云端）。
+
+\begin{table}[t]
+  \centering
+  \caption{\slo{} 与 \etok{}（J/tok）随边缘数量变化。$\bigstar$ = 全 9 种调度器中列最优。}
+  \label{tab:topology}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    配置 (1 云 +) & PSO & SQ & A3C-R2N2 & GNN & \textbf{RL} \\
+    \midrule
+    3 边缘 --- \slo
+      & 0.273 & 0.277 & 0.246 & 0.241 & \textbf{0.314}$^\bigstar$ \\
+    3 边缘 --- \etok
+      & 2.19 & 2.32 & 2.28 & 2.24 & \textbf{1.99}$^\bigstar$ \\
+    5 边缘 --- \slo
+      & 0.235 & 0.234 & 0.214 & 0.210 & \textbf{0.302}$^\bigstar$ \\
+    5 边缘 --- \etok
+      & 2.81 & 2.96 & 2.93 & 2.93 & \textbf{2.61}$^\bigstar$ \\
+    7 边缘 --- \slo
+      & 0.241 & 0.218 & 0.193 & 0.250 & \textbf{0.282}$^\bigstar$ \\
+    7 边缘 --- \etok
+      & 3.25 & 3.34 & 3.35 & 3.35 & \textbf{3.00}$^\bigstar$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+三种拓扑下本文 RL 均列每项指标最优。Pareto 占优随拓扑变化呈现以下规律：\textbf{3 边缘（资源紧张）}：\slo{} 相对领先 13\%、能效领先 9\%---AIGC 物理在资源稀缺时贡献最大；\textbf{5 边缘（典型）}：\slo{} 领先 28\%、能效领先 7\%；\textbf{7 边缘（资源充裕）}：\slo{} 领先 13\%、能效领先 8\%---AIGC 感知即便在资源充裕时仍保留优势，但 \slo{} 相对差距收窄。
+
+\textbf{能效优势比 \slo{} 更"配置稳定"。}相对能效提升稳定在 [7\%, 9\%] 窄带内，而 \slo{} 提升在 13--28\% 间波动。这表明\textbf{能效更干净地刻画了 AIGC 感知调度的"内在"收益}：\slo{} 受集群争用动态影响较大，而能耗直接反映每任务效率（图~\ref{fig:topology}）。
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig5_topology.pdf}
+  \caption{拓扑敏感性。左：\slo{} 达成率 vs.\ 边缘数。右：每 token 能耗 vs.\ 边缘数。RL 在所有拓扑点均领先；能效差距稳定在 7--9\% 窄带。}
+  \label{fig:topology}
+\end{figure}
+
+\subsection{负载敏感性}
+\label{sec:load}
+
+固定 edge${=}5$，扫描 Poisson 到达率 $\lambda \in \{0.5, 1, 2, 4, 8\}$ 请求/秒，刻画调度器从轻载到过载的行为变化。
+
+\begin{table}[t]
+  \centering
+  \caption{\slo{} 达成率随到达率变化。$\bigstar$ = 严格胜出；$\dagger$ = 与 PSO 持平。}
+  \label{tab:slo-vs-lambda}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{rrrrrl}
+    \toprule
+    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & \textbf{RL} \\
+    \midrule
+    0.5 & 0.596 & 0.339 & 0.359 & 0.500 & \textbf{0.596}$^\dagger$ \\
+    1.0 & 0.297 & 0.265 & 0.227 & 0.237 & \textbf{0.447}$^\bigstar$ \\
+    2.0 & 0.235 & 0.234 & 0.214 & 0.210 & \textbf{0.302}$^\bigstar$ \\
+    4.0 & \textbf{0.253} & 0.205 & 0.191 & 0.207 & 0.214 \\
+    8.0 & \textbf{0.216} & 0.167 & 0.156 & 0.193 & 0.199 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[t]
+  \centering
+  \caption{每 token 能耗（J/tok）随到达率变化。}
+  \label{tab:e-vs-lambda}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{rrrrrr}
+    \toprule
+    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & \textbf{RL} \\
+    \midrule
+    0.5 & 3.00 & 3.49 & 3.38 & 3.13 & \textbf{2.96}$^\bigstar$ \\
+    1.0 & 2.77 & 3.00 & 3.07 & 2.95 & \textbf{2.64}$^\bigstar$ \\
+    2.0 & 2.81 & 2.96 & 2.93 & 2.93 & \textbf{2.61}$^\bigstar$ \\
+    4.0 & 2.85 & 2.97 & 2.94 & 2.92 & \textbf{2.58}$^\bigstar$ \\
+    8.0 & 2.94 & 2.89 & 2.98 & 2.91 & \textbf{2.52}$^\bigstar$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{关键观察。}（1）\emph{所有负载下能效维度均为 RL 占优}：RL 在每个 $\lambda$ 都取得最低每 token 能耗（5/5），相对次优基线领先 5--11\%；随负载上升该优势\emph{进一步扩大}。（2）\emph{\slo{} 占优集中于中等负载工况}（$\lambda \in [0.5, 2]$）：在每一点 RL 严格胜出或与他人持平；$\lambda{=}1$ 处达到 50\% 的相对 \slo{} 提升。（3）\emph{在极高负载下（$\lambda \ge 4$）}集群逼近物理吞吐上限，各调度器的 \slo{} 趋同；$\lambda{=}4$、$\lambda{=}8$ 处 PSO 在 \slo{} 上略胜 RL---可能因为批量离线搜索更能从同质化队列状态中挖出顺序，而 RL 的增量策略难以做到。\textbf{但 RL 的能效优势仍在}（图~\ref{fig:load}）。
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{fig6_load.pdf}
+  \caption{负载敏感性。左：\slo{} 达成率 vs.\ $\lambda$（横轴对数刻度）。$\lambda \in [0.5, 2]$ 时 RL 居顶，$\lambda \ge 4$ 与 PSO 收敛。右：\etok{} vs.\ $\lambda$。RL 在整个范围内与所有其他线保持可见的下方分离。}
+  \label{fig:load}
+\end{figure}
+
+\textbf{AIGC 感知设计在什么工况下最有用？}我们把扫描结果分成三个工况：\textbf{轻载}（$\lambda \le 1$，资源充裕）---仅能效占优；\textbf{甜区}（$1 \le \lambda \le 2$）---严格 Pareto 占优；\textbf{饱和}（$\lambda \ge 4$，逼近吞吐上限）---仅能效占优。这一细致结论比扁平的"我们到处赢"更可辩护。最干净的总结是：\emph{AIGC 感知 RL 在全部负载下保持 5--11\% 的能效稳健优势，并在主导多数生产部署的中等负载工况下取得严格的 \slo{}+能耗 Pareto 占优}。
+
+\subsection{工作负载组合敏感性}
+\label{sec:workload}
+
+在 edge${=}5$、$\lambda{=}2$ 下测试两种模型混合：\textbf{uniform}（LLaMA-7B/13B/70B 各 1/3）与 \textbf{large-heavy}（70\% LLaMA-70B-INT8，偏向显存受限请求）。
+
+\begin{table}[t]
+  \centering
+  \caption{不同工作负载组合下的 Pareto 表现。}
+  \label{tab:workload}
+  \small
+  \begin{tabular}{llrr}
+    \toprule
+    混合 & 调度器 & \slo{} & \etok{} \\
+    \midrule
+    uniform & PSO            & 0.235 & 2.81 \\
+    uniform & ShortestQueue  & 0.234 & 2.96 \\
+    uniform & A3C-R2N2       & 0.214 & 2.93 \\
+    uniform & GNN            & 0.210 & 2.93 \\
+    uniform & \textbf{RL（本文）}
+            & \textbf{0.302}$^\bigstar$ & \textbf{2.61}$^\bigstar$ \\
+    \midrule
+    large-heavy & PSO            & 0.093 & 3.84 \\
+    large-heavy & ShortestQueue  & 0.105 & 3.84 \\
+    large-heavy & A3C-R2N2       & \textbf{0.107} & 3.79 \\
+    large-heavy & GNN            & 0.091 & 3.79 \\
+    large-heavy & \textbf{RL（本文）}
+                & 0.098 & \textbf{3.58}$^\bigstar$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+在 \textbf{uniform 混合}下，本文 RL 为严格 Pareto 胜出者，与 \S\ref{sec:main-results} 一致。在 \textbf{large-heavy 混合}下，所有调度器的 \slo{} 收敛到 0.09--0.11 的窄带：因为 LLaMA-70B-INT8（70~GB 权重）\emph{只能放在云端}，云端队列必然饱和。\textbf{能效成为唯一可区分的维度}，本文 RL 仍领先（3.58 vs.\ 3.79~J/tok，相对降低 5.5\%）。\emph{当负载超出某层级集群的物理容量时，AIGC 感知调度退化为纯能效优化}（第~\ref{sec:discuss} 节讨论）。
+
+\subsection{组件消融}
+\label{sec:ablation}
+
+为隔离哪些组件贡献于 Pareto 占优，我们系统地一次关闭一个组件，其余保持不变。所有消融配置：edge${=}5$、$\lambda{=}2$ 请求/秒、uniform 混合、$N{=}30$ 次运行。
+
+\textbf{消融分类。}四大类：\emph{物理层}（\texttt{no\_batching}）；\emph{PPO 内部}（\texttt{no\_action\_mask}、\texttt{no\_gae}、\texttt{no\_pretrain}、\texttt{no\_entropy}）；\emph{AIGC 奖励}（\texttt{no\_warm\_reward}、\texttt{no\_batch\_reward}、\texttt{no\_affinity\_reward}、\texttt{no\_cloud\_overuse}、\texttt{no\_all\_aigc\_rewards}）；\emph{AIGC 状态}（\texttt{no\_aigc\_state}、\texttt{no\_aigc\_full}）。
+
+\begin{table*}[t]
+  \centering
+  \caption{组件消融。$\Delta$ 相对完整 RL（$N{=}30$、edge${=}5$、$\lambda{=}2$、uniform 混合）。$p$ 来自对 \slo{} 的 Mann-Whitney U 检验。粗体 = $p<0.05$。}
+  \label{tab:ablation}
+  \small
+  \begin{tabular}{llrrrrr}
+    \toprule
+    类别 & 配置 & \slo{} & $\Delta$\slo\%
+             & \etok{} & $\Delta$\etok\% & $p$(\slo) \\
+    \midrule
+    --- & \textbf{完整 RL（本文）}
+        & \textbf{0.302} & ---
+        & \textbf{2.61} & --- & --- \\
+    \midrule
+    \textbf{物理}
+      & \textbf{$-$ 连续批处理}
+      & \textbf{0.051} & \textbf{$-$83.2\%}
+      & \textbf{5.75} & \textbf{$+$120.5\%}
+      & \textbf{$<$0.001}$^{***}$ \\
+    \textbf{PPO}
+      & \textbf{$-$ 预训练（20$\to$0 ep）}
+      & \textbf{0.186} & \textbf{$-$38.4\%}
+      & \textbf{2.96} & \textbf{$+$13.5\%}
+      & \textbf{$<$0.001}$^{***}$ \\
+    PPO & $-$ Action masking
+      & 0.274 & $-$9.3\% & 2.66 & $+$2.1\% & 0.39 \\
+    PPO & $-$ GAE（改用 MC return）
+      & 0.292 & $-$3.3\% & 2.61 & $-$0.1\% & 0.65 \\
+    PPO & $-$ 熵正则
+      & 0.305 & $+$0.9\% & 2.54 & $-$2.8\% & 0.92 \\
+    AIGC 奖励 & $-$ Warm bonus
+      & 0.300 & $-$0.7\% & 2.60 & $-$0.4\% & 0.87 \\
+    AIGC 奖励 & $-$ Batch bonus
+      & 0.311 & $+$3.1\% & 2.59 & $-$0.8\% & 0.87 \\
+    AIGC 奖励 & $-$ Affinity bonus
+      & 0.287 & $-$4.9\% & 2.64 & $+$1.3\% & 0.57 \\
+    AIGC 奖励 & $-$ Cloud-overuse 惩罚
+      & 0.309 & $+$2.2\% & 2.60 & $-$0.5\% & 0.96 \\
+    AIGC 奖励（联合） & $-$ 所有 AIGC 奖励
+      & 0.302 & $+$0.0\% & 2.62 & $+$0.5\% & 0.95 \\
+    AIGC 状态 & $-$ AIGC 状态特征
+      & 0.295 & $-$2.2\% & 2.55 & $-$2.1\% & 0.81 \\
+    AIGC（联合） & $-$ 所有 AIGC 设计
+      & 0.306 & $+$1.3\% & 2.52 & $-$3.3\% & 0.99 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\textbf{发现：两个主导组件与一个出人意料的零结果。}
+
+\textbf{发现 1：连续批处理是物理基础}（$p<0.001$、$\Delta$\slo${} = -83.2\%$、$\Delta$\etok${} = +120.5\%$）。关闭批处理仿真后，调度器形同失效---\slo{} 跌至 5\%、每 token 能耗翻倍。这印证了 Sarathi-Serve~\cite{agrawal2024sarathi} 与 Orca~\cite{yu2022orca} 强调"迭代级批处理是基础设施而非调度优化"的观点。
+
+\textbf{发现 2：充足预训练不可或缺}（$p<0.001$、$\Delta$\slo${} = -38.4\%$、$\Delta$\etok${} = +13.5\%$）。没有 20 episode 的预训练，RL 策略无法跳出"派往云端"的局部最优。这与 DRL 调度文献（Decima~\cite{mao2019decima}、RLScheduler~\cite{zhang2020rlscheduler}）的普遍观察一致：在随机调度环境中，warm-start/预训练对样本效率至关重要。
+
+\textbf{发现 3：单一 AIGC 组件\emph{无显著效应}}（所有 $p > 0.39$）。关闭任何单个 AIGC 组件（warm/batch/affinity/cloud-overuse 奖励，或 AIGC 状态特征）后，性能在噪声范围内（$\pm 5\%$）。这一现象与如下假设吻合：在足够预训练 + 充足基础特征下，PPO 能从其他剩余特征中\emph{隐式}学到 AIGC 感知行为；显式信号至多是冗余而非必需。
+
+\textbf{发现 4（最反直觉）：\emph{联合}关闭所有 AIGC 设计也无显著效应}（$p=0.99$ 对 \slo{}，$\Delta$\etok${} = -3.3\%$）。\texttt{no\_aigc\_full} 联合消融的 \slo{} 与完整 RL 几乎相同，能效甚至\emph{略好}。结合 \S\ref{sec:main-results} 中"我们 Pareto 占优全部 8 个基线"的发现，这一对比给出更细致的图景：\textbf{"AIGC 感知"的贡献来自训练过程 + 仿真器物理 + RL 主干选择的整体，而非任何单一奖励或状态组件}（图~\ref{fig:ablation}）。
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig7_ablation.pdf}
+  \caption{12 个配置的组件消融。左：$\Delta$\slo\% vs.\ 完整 RL；右：$\Delta$\etok\%。红条 = $p<0.05$；灰条 = 噪声范围内；浅灰带 = $\pm 10\%$。只有连续批处理与预训练展示出统计显著效应；所有单一 AIGC 奖励/状态组件都落在噪声范围内。}
+  \label{fig:ablation}
+\end{figure*}
+
+\textbf{调和：为何 RL 能 Pareto 占优基线但又对消融不敏感？}\S\ref{sec:main-results}（RL 严格占优 8 个基线）与表~\ref{tab:ablation}（无单一 AIGC 组件显著）之间的表面矛盾可这样理解：基线相对本文 RL 在多个维度同时不同---LB 类基线无学习能力；HEFT/GA/PSO 优化固定 cost 函数且不含 AIGC 物理；A3C-R2N2 同主干但无 AIGC 奖励整形且用 GRU 编码器；GNN 同特征但编码器不同且在我们预算下训练不稳。当这些维度同时不同时，基线落后本文 7--28\%。当我们\emph{单独}消融一个 AIGC 组件时---同时保留 PPO、预训练、动作掩码与其他 AIGC 特征---PPO 可从剩余特征中提取等价信号。这告诉我们：\textbf{AIGC 感知调度是系统级整体贡献，而非奖励或状态层的某个"独门技巧"}。

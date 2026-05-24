@@ -1,0 +1,63 @@
+% =============================================================
+% §1 引言
+% =============================================================
+\section{引言}
+\label{sec:intro}
+
+以大语言模型（LLM）推理为主导的生成式 AI（AIGC）负载，已成为现代数据中心增长最快的算力消耗类目。最近五年间，训练与服务此类模型的能耗和碳排放已增加数个数量级~\cite{patterson2021carbon}；在多数生产部署中，推理累计 FLOPs 已超过训练~\cite{patel2024splitwise}。随着 LLM 服务从研究演示走向语音助手、实时编程助手、流式摘要等延迟敏感场景，系统社区开始重新思考：如何在异构算力资源池上\emph{调度}推理负载。
+
+本文研究\textbf{云--边协同 LLM 推理调度}。该部署范式因三大动机受到关注：（i）\textbf{成本}---常规请求可由更便宜的边缘加速器服务，云端 GPU 留给长尾请求；（ii）\textbf{隐私}---尽可能将 prompt 数据保留在本地；（iii）\textbf{尾延迟}---借助边缘临近性摊薄首 token 延迟。\emph{某个请求由哪台服务器处理}这一调度决策由此成为关键性能杠杆，与 vLLM~\cite{kwon2023vllm}、Orca~\cite{yu2022orca}、Sarathi-Serve~\cite{agrawal2024sarathi} 等单机内批处理引擎所解决的问题是相互正交的。
+
+\subsection{LLM 推理调度的特殊性}
+
+现有集群调度器（HEFT、GA、PSO 与 Decima~\cite{mao2019decima}、RLScheduler~\cite{zhang2020rlscheduler} 等学习式变体）原本为 Spark 作业、HPC 批任务等通用 DAG 负载设计。它们并未建模 LLM 推理在以下五项物理特性上的根本差异：
+
+\begin{enumerate}
+\item \textbf{模型权重驻留。}LLM 权重（LLaMA-7B/13B/70B 在 FP16/INT8 下为 14--70~GB）需持久驻留在 GPU 显存中。切换模型会引入 5--60 秒的冷加载开销---比任何单请求计算时间高出数个数量级。
+
+\item \textbf{KV cache 本地性。}每个请求的 KV cache 在 prefill 阶段产生、在 decode 阶段消费，与运行 prefill 的 GPU 绑定。将 KV 跨服务器迁移每次需移动数百 MB 数据，时常成为 decode 延迟的主导因素。
+
+\item \textbf{连续批处理。}vLLM 风格的迭代级批处理在 $N$ 个同模型请求上耗时约 $(1+(N-1)\cdot \alpha)\cdot T_{\text{solo}}$，可获得 $5$--$8\times$ 吞吐量加速。但前提是调度器将同模型请求\emph{共置}到同一服务器。
+
+\item \textbf{显存带宽下限。}与计算瓶颈的 prefill 不同，decode 受 HBM 显存带宽约束。在 A100 级 GPU 上，单 token 解码延迟约为 20~ms，与算力无关；"加算力"无法把 decode 推到此下限之下。
+
+\item \textbf{两阶段请求生命周期。}每个请求分解为 Prefill $\to$ Decode 两步，二者间存在严格依赖与共享 KV 状态。这违反了大多数 DAG 调度器关于"各阶段独立"的假设。
+\end{enumerate}
+
+这五项物理特性的组合带来了通用负载所没有的调度权衡：将同模型请求集中到一台服务器（利于批处理） \emph{vs.} 分散以避免争用；将 decode 派往算力强但远离 prefill 的服务器（缩短计算）\emph{vs.} 派往 prefill 同址服务器（免去 KV 迁移）。\textbf{忽略 AIGC 物理的调度器无法利用这些权衡}，因而显著损失效率。
+
+\subsection{为什么"通用 RL"在此失效}
+
+一种自然的猜想是：只要充分训练，"现成" RL 调度器即可从基础特征（算力、队列长度、显存占用）中\emph{隐式}学到 AIGC 感知行为。我们最初便是为了检验这一猜想而启动本工作。
+
+实证发现比预期更微妙（图~\ref{fig:pareto}）：
+
+\begin{itemize}
+\item 通用负载均衡基线（LeastLoaded、ShortestQueue）、最优 DAG 启发式（HEFT、GA、PSO）以及现代 DRL 基线（A3C-R2N2~\cite{tuli2022a3cr2n} 与我们自实现的 Decima~\cite{mao2019decima} 风格 GNN 变体）在 Pareto 平面上聚集为一团：\slo{} 达成率约 21--24\%，能效约 2.8--3.0~J/token。
+
+\item 我们的 AIGC 感知 PPO 调度器，与 A3C-R2N2 共用 actor-critic 家族算法与等价预训练预算，但加入显式的 AIGC 状态特征与奖励整形，取得\textbf{显著更优的 Pareto 点}：\slo{} 30.2\%（相对提升 28\%），能耗 2.61~J/token（相对降低 7\%），\slo{} 维度对全部 4 个最强基线 $p<0.05$ 显著，能效维度对其中 3 个显著（PSO 方向一致但 $p=0.11$）。
+
+\item 然而，12 组件消融（表~\ref{tab:ablation}、图~\ref{fig:ablation}）揭示了一个悖论：移除任何单一 AIGC 组件（warm 奖励、batch 奖励、affinity 奖励、AIGC 状态特征，甚至全部联合移除）后，性能几乎不变。只有连续批处理仿真与充足预训练这两项呈现显著差异。
+\end{itemize}
+
+\subsection{调和与贡献}
+
+上述现象可这样解释：\textbf{AIGC 感知调度是一项系统级整体贡献，而非某个奖励技巧}。一旦调度器同时具备（i）环境中的连续批处理物理建模、（ii）充足的预训练样本、（iii）状态\emph{或}奖励中\emph{某种}形式的 AIGC 感知，PPO 主干便能从任一 AIGC 先验中提取等价信号——它们在实践中可互相替代。Pareto 改进是真实的，但其来源是\emph{组合}，而非单个奖励项的"独门绝技"。
+
+\medskip
+\noindent 本文做出四项贡献：
+
+\smallskip
+\noindent\textbf{（C1）AIGC 推理仿真平台。}以 M1--M4 四个工程里程碑实现上述五项物理特性：M1 模型权重驻留 + LRU 驱逐；M2 prefill/decode 两阶段任务 + KV cache 显存核算；M3 准入式连续批处理；M4 标定至 vLLM 实测值的显存带宽下限。该平台连同复现 manifest 一同开源。
+
+\smallskip
+\noindent\textbf{（C2）AIGC 感知 PPO 调度器（RL）。}通过状态特征（已加载模型指示、批占用率、同请求 prefill/decode 兄弟服务器、KV cache 体积）与奖励整形（warm、batch、affinity bonus 与 cloud-overuse 惩罚）将 AIGC 物理量显式暴露给策略网络，在 \slo{} 达成率与每 token 能耗两个轴上对 8 个强基线取得\textbf{Pareto 占优}。
+
+\smallskip
+\noindent\textbf{（C3）系统的 12 组件消融研究。}揭示哪些 AIGC 抽象\emph{真正}贡献于最终增益。"没有任何单项 AIGC 奖励或状态组件在统计上显著"这一反直觉的零结果，警示后续工作在将 AIGC 调度增益归因于某个具体设计前，应当先做联合消融验证。
+
+\smallskip
+\noindent\textbf{（C4）实证的"工况划分"刻画。}AIGC 感知 RL 严格 Pareto 占优仅出现在\textbf{中等负载工况}（$\lambda \in [1,2]$ 请求/秒、uniform 模型混合）；但在全部 30 种测试配置下，能效维度始终保持 5--11\% 的稳健优势。这一细致结论修正了 DRL 调度文献中"我们到处赢"的简单论断，为 AIGC 调度部署提供可操作的指导。
+
+\medskip
+本文其余部分组织如下：第~\ref{sec:background} 节回顾 LLM 推理与云边调度背景；第~\ref{sec:formulation} 节给出含五项 AIGC 物理的形式化调度问题；第~\ref{sec:system} 节详述仿真器设计（\ref{sec:simulator}）与 AIGC 感知 RL 调度器（\ref{sec:rl}）；第~\ref{sec:eval} 节报告实验评估；第~\ref{sec:discuss} 节讨论局限与启示；第~\ref{sec:related} 节综述相关工作；第~\ref{sec:conclusion} 节总结全文。

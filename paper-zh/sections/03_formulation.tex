@@ -1,0 +1,72 @@
+% =============================================================
+% §3 问题形式化
+% =============================================================
+\section{问题形式化}
+\label{sec:formulation}
+
+\subsection{系统模型}
+\label{sec:sys-model}
+
+\textbf{部署拓扑。}异构算力池 $\mathcal{S} = \{s_0, s_1, \ldots, s_N\}$，其中 $s_0$ 为云服务器，$s_1, \ldots, s_N$ 为边缘服务器。每台服务器 $s$ 具有固定属性：算力 $C_s$（TFLOPS）、显存容量 $V_s$（GB）、上行带宽 $B_s$（Mbps），以及空闲与峰值功耗 $P^{\text{idle}}_s$、$P^{\max}_s$（W）。网络函数 $\tau(s, s', x)$ 给出在服务器 $s$ 与 $s'$ 之间传输 $x$~GB 数据所需的时间。
+
+\textbf{模型目录。}LLM 变体集合 $\mathcal{M} = \{m_1, \ldots, m_K\}$。每个模型 $m$ 具有权重体积 $W_m$（GB）、冷加载时间 $C^{\text{cold}}_m$（s）、单 token KV cache 大小 $\kappa_m$（MB/token）、单 token 解码下限延迟 $\phi_m$（s/token）以及最大 batch 大小 $B^{\max}_m$。
+
+\textbf{请求负载。}请求流 $\mathcal{R} = \{r_1, r_2, \ldots\}$ 按速率为 $\lambda$ 的 Poisson 过程到达。每个请求 $r_i = (m_i, L^p_i, L^o_i, a_i)$ 包含目标模型 $m_i \in \mathcal{M}$、prompt 长度 $L^p_i$、预期输出长度 $L^o_i$ 与到达时间 $a_i$。
+
+\textbf{任务分解。}每个请求 $r_i$ 分解为两个任务 $(t^{\text{pre}}_i, t^{\text{dec}}_i)$，带有严格依赖边 $t^{\text{pre}}_i \to t^{\text{dec}}_i$；prefill 任务携带 $w^{\text{pre}}_i \propto L^p_i$ 的工作量，decode 任务携带 $w^{\text{dec}}_i \propto L^o_i$ 的工作量，二者引用相同的模型 $m_i$ 与请求 id。整个推理负载因而是若干两两独立的两节点 DAG 构成的森林。
+
+\subsection{AIGC 物理作为约束}
+\label{sec:physics-constraints}
+
+第~\ref{sec:intro} 节中的五项 AIGC 物理具体化为以下约束与代价项。
+
+\textbf{（P1）模型权重驻留。}服务器 $s$ 在时刻 $t$ 维护一个状态 $L_s(t) \subseteq \mathcal{M}$，表示当前驻留在显存中的模型集合。目标模型为 $m$ 的任务派往 $s$ 时，若 $m \notin L_s(t)$，将支付冷加载惩罚 $C^{\text{cold}}_m$；若加载 $m$ 会超出 $V_s$，仿真器以 LRU 顺序逐出未锁定的模型。形式化的准入延迟为：
+\begin{equation}
+  \delta^{\text{cold}}_{s,m,t} = C^{\text{cold}}_m \cdot \mathbb{1}[m \notin L_s(t)].
+\end{equation}
+
+\textbf{（P2）KV cache 本地性。}当 decode 任务 $t^{\text{dec}}_i$ 派往服务器 $s$、而其 prefill $t^{\text{pre}}_i$ 在 $s'$ 上运行时，需支付额外的 KV 迁移开销：
+\begin{equation}
+  \delta^{\text{kv}}_i = \tau\!\left(s', s,\; L^p_i \cdot \kappa_{m_i} / 1024\right).
+\end{equation}
+当 $s = s'$ 时，该开销为零（KV cache 已本地）。
+
+\textbf{（P3）连续批处理。}用 $b_{s,m,k}(t)$ 表示在服务器 $s$ 上、对模型 $m$、处于阶段 $k$（取值为 prefill 或 decode）当前运行中的同类任务数。新任务进入该批后的有效执行时间为
+\begin{equation}
+  T^{\text{exec}}_{\text{eff}} = T^{\text{solo}} \cdot \bigl(1 + b_{s,m,k}(t) \cdot \beta_k\bigr),
+\end{equation}
+其中 $\beta_{\text{pre}} = 0.30$、$\beta_{\text{dec}} = 0.05$ 为阶段特异的开销系数。准入要求 $b_{s,m,k}(t) < B^{\max}_m$（批槽未满）。
+
+\textbf{（P4）显存带宽下限。}单阶段任务的"独占"执行时间取算力受限时间与带宽下限两者之最大：
+\begin{equation}
+  T^{\text{solo}} = \max\!\left(\frac{w_t}{C_s},\; \phi_{m_t} \cdot n_t\right),
+\end{equation}
+其中 $w_t$ 为任务工作量（TFLOPS），$n_t$ 为 token 数（prefill 为输入、decode 为输出）。
+
+\textbf{（P5）两阶段依赖。}decode 任务 $t^{\text{dec}}_i$ 只有在 $t^{\text{pre}}_i$ 完全完成后方可 READY。结合（P1）与（P2），派往 $s \ne s'$ 的 decode 无法享受 prefill 的 KV cache，要么支付迁移开销，要么重做 prefill。
+
+\subsection{调度问题}
+\label{sec:sched-problem}
+
+调度策略 $\pi$ 为每个 READY 任务在每个时间步给出分派 $\pi: t \mapsto s \in \mathcal{S}$。给定请求流 $\mathcal{R}$，$\pi$ 诱导出以下度量。\textbf{TTFT}（首 token 延迟）记为 $\text{TTFT}_i = e^{\text{pre}}_i - a_i$，其中 $e^{\text{pre}}_i$ 为 prefill 任务实际完成时刻；\textbf{TPOT}（每输出 token 时间）记为 $\text{TPOT}_i = (e^{\text{dec}}_i - s^{\text{dec}}_i) / L^o_i$。\textbf{\slo{} 达成率}与\textbf{每 token 能耗}定义为：
+\begin{align}
+  \text{SLO}(\pi) &= \frac{1}{|\mathcal{R}|}\sum_i \mathbb{1}\!\bigl[\text{TTFT}_i \le T^*_{\text{TTFT}} \notag\\
+    &\qquad\qquad \land\; \text{TPOT}_i \le T^*_{\text{TPOT}}\bigr], \\
+  E_{\text{tok}}(\pi) &= \frac{\sum_s \int_0^T P_s(t)\,dt}{\sum_i L^o_i},
+\end{align}
+其中瞬时功率 $P_s(t) = P^{\text{idle}}_s + (P^{\max}_s - P^{\text{idle}}_s) \cdot u_s(t)$ 依赖于服务器算力利用率 $u_s(t)$。
+
+我们的调度问题是\textbf{双目标规划}：
+\begin{equation}
+  \max_\pi\; \text{SLO}(\pi) \qquad \min_\pi\; E_{\text{tok}}(\pi),
+\end{equation}
+受每步准入可行性约束（算力、显存、批槽）。由于两个目标可能冲突（如"全派往云端"最大化单请求算力但能耗超支），我们在 $(\text{SLO}, E_{\text{tok}})$ 平面上评估策略，并追求\textbf{Pareto 占优}：策略 $\pi$ 占优 $\pi'$ 当且仅当 $\pi$ 在两个轴上均不劣、至少在一个轴上严格优。
+
+\subsection{用于 RL 求解的 MDP 形式化}
+\label{sec:mdp}
+
+我们将单任务分派视作序贯决策过程并以强化学习求解。在每个 READY 任务到达时刻，agent 观测状态 $\mathbf{s}_t$，包含当前任务属性以及所有服务器的利用率、已加载模型集合与批占用率（编码细节见第~\ref{sec:rl} 节）。Agent 输出动作 $a_t \in \mathcal{S}$ 选定派发目标；仿真器执行分派、推进时间至下一 READY 任务，并给出标量奖励 $r_t$。奖励定义为 7 项物理与 AIGC 感知信号的加权和（第~\ref{sec:rl} 节），提供\textbf{每决策的稠密反馈}，避免等到 episode 末才回传 \slo{}/能耗信号；考虑到我们的 episode 长达约 100 次分派，这一选择对训练效率至关重要。
+
+该 MDP 在原则上\textbf{部分可观}（仿真器内部状态比 $\mathbf{s}_t$ 更丰富），但可观特征已涵盖在仿真器动力学下做出决策所需的全部信息。MDP 在 episode 内\textbf{非平稳}（服务器利用率随任务完成演化）、在 episode 间\textbf{平稳}（负载分布固定）。我们用带动作掩码、预训练与 GAE 的 PPO 求解，详见第~\ref{sec:rl} 节。
+
+\textbf{为什么选 RL。}一个自然的替代是直接求解 \S\ref{sec:sched-problem} 隐含的整数线性规划。我们之所以放弃 ILP：（i）AIGC 物理（P1）（P3）引入了\emph{状态相关}代价（冷加载与批处理开销依赖服务器当前运行集合，episode 内随时变化），违反静态代价 ILP 的假设；（ii）每步组合动作空间 $|\mathcal{S}|^{|\mathcal{R}|}$ 在真实负载规模下远超分支定界可行域。启发式与元启发式调度器（HEFT、GA、PSO）构成的设计空间与 RL 更可比，作为本文主要基线见第~\ref{sec:eval} 节。

@@ -1,0 +1,52 @@
+% =============================================================
+% §4 系统设计
+% =============================================================
+\section{系统设计}
+\label{sec:system}
+
+本系统由两个协同设计的组件构成：建模第~\ref{sec:intro} 节所列五项 AIGC 物理的推理仿真器（第~\ref{sec:simulator} 节），以及通过状态特征与奖励整形将上述物理量暴露给策略的 AIGC 感知 PPO 调度器（第~\ref{sec:rl} 节）。
+
+\subsection{AIGC 推理仿真器}
+\label{sec:simulator}
+
+仿真器以 Python 实现，采用 0.1~s 步长的离散事件驱动结构。每个 step 依次（a）回收已完成任务并释放资源，（b）按依赖与到达时间将任务从 WAITING 推进到 READY，（c）调用调度器，（d）启动被准入的任务并累积各服务器能耗。五项 AIGC 物理以 M1--M4 四个工程里程碑实现。
+
+\textbf{M1：模型权重驻留。}每台服务器维护 \texttt{loaded\_models} 并附带引用计数；缺失模型触发未锁定模型的 LRU 驱逐与 \texttt{cold\_load\_sec} 延迟（LLaMA-7B/14~GB 为 5~s；LLaMA-70B-INT8/70~GB 为 25~s；按 NVMe 顺序读带宽标定）。
+
+\textbf{M2：Prefill--Decode 两阶段任务与 KV cache。}每请求拆分为共享 \texttt{req\_id} 的 (Prefill, Decode) 对；阶段工作量为 \texttt{tokens$\cdot$prefill\_tflops}/$k$ 与相应 decode 形式。我们把 KV 大小编码进 \texttt{prefill.output\_size}（$=$\,$\text{prompt\_tokens}\cdot\kappa_m/1024$~GB），使现有的传输时间公式在 Decode 落到与 Prefill 不同的服务器时\textbf{自动}产生 KV 迁移开销，\emph{无需新增代码路径}。每个任务还携带 \texttt{kv\_cache\_GB} 字段，在执行期间占用对应服务器的显存。
+
+\textbf{M3：连续批处理。}被准入的任务统计同模型同阶段并行运行数 \texttt{batch\_size\_at\_admit}，其有效时间为 $T_{\text{solo}}(1+(\text{batch\_size}-1)\cdot\beta_k)$，其中 $\beta_{\text{decode}}{=}0.05$、$\beta_{\text{prefill}}{=}0.30$（与 vLLM 实测匹配）。\texttt{--ablation no\_batching} 开关同时关闭批处理\emph{并}强制 GPU 串行执行推理任务，模拟无迭代级批处理引擎的行为。
+
+\textbf{M4：显存带宽下限 + 真实负载。}Decode 受 HBM 带宽约束，因此有效时间上限封顶在每模型 token 下限 $\phi_m$（LLaMA-7B decode 20~ms/tok，按比例延展到 LLaMA-70B 的 80~ms/tok）。M4 还引入 Poisson 到达（\texttt{arrival\_time} 字段控制 READY 转换）与对齐 Azure LLM Inference Trace 2023 的对数正态 prompt/output 长度分布（prompt $\mu_{\log}{=}5.5,\sigma{=}1.0$；output $\mu_{\log}{=}4.5,\sigma{=}1.2$）。
+
+\textbf{能耗模型。}每台服务器瞬时功率为 $P(t)=\text{idle\_W}+(\text{max\_W}-\text{idle\_W})\cdot u_s(t)$，分层系数对齐 NVIDIA TDP（云端 A100：50--400~W；边缘 A100：30--250~W；T4：20--70~W；Jetson AGX Orin：10--30~W）。系统每 token 能耗为积分功率除以已完成输出 token 数。
+
+仿真器暴露单一 \texttt{scheduler.schedule()} 接口（只读访问任务/服务器/网络，通过 \texttt{server.add\_task} 派发），任何调度器---从 50 行的 RoundRobin 到我们的 PPO agent---都可即插即用，无需改动环境。图~\ref{fig:simulator-arch} 给出端到端数据流概览。
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.92\textwidth]{trace_integration.pdf}
+  \caption{AIGC 推理仿真器端到端架构。颜色带分别为：（紫）trace 源、（蓝）工作负载生成器、（红）含 M1--M4 物理模块的仿真环境、（黄）指标收集、（灰）输出文件。最小化的 \texttt{scheduler.schedule()} 接口将策略与环境解耦，使 9 个基线与 12 组消融配置共用同一物理后端，保证对比公平。}
+  \label{fig:simulator-arch}
+\end{figure*}
+
+\subsection{AIGC 感知强化学习调度器}
+\label{sec:rl}
+
+我们将单任务分派建模为 MDP，并用 PPO 求解。
+
+\textbf{状态。}对每个 READY 任务，编码器输出维度为 $(10+|\mathcal{M}|)+2+10N$ 的扁平向量，分为三块：\emph{任务块}（计算需求、工作量、输入/输出大小、依赖与后继数、任务类型 one-hot、归一化 KV 大小、模型 ID one-hot），\emph{全局块} 2 维（READY 队列长度、已完成比例），以及 10 维 $\times N$ 服务器的\emph{服务器块}（五个通用特征：算力/显存利用率、带宽、队列长度、到该服务器的传输时间估计；五个\textbf{AIGC 特定特征}：（i）目标模型是否已加载、（ii）归一化批占用率、（iii）剩余显存比例、（iv）归一化冷加载代价、（v）\emph{兄弟服务器指示}---对 Decode 任务，标记候选服务器是否就是 Prefill 落位的那台）。兄弟指示是本工作引入的最新颖特征：让策略直接读出 KV 本地性，免去对请求 ID 的推理。当 edge${=}5$、$|\mathcal{M}|{=}4$ 时，状态维度为 96。
+
+\textbf{动作。}在 $N$ 台服务器上离散选择，配以\textbf{动作掩码}（凡 \texttt{can\_allocate} 失败的服务器其概率清零）；掩码在每次分派时重算。
+
+\textbf{奖励。}7 项稠密的逐决策奖励项加权求和：
+\begin{equation}
+  \label{eq:reward}
+  \begin{aligned}
+    r =\;& 0.25\,r_{\text{time}} + 0.10\,r_{\text{balance}} + 0.10\,r_{\text{match}} \\
+       &+ 0.15\,r_{\text{warm}} + 0.20\,r_{\text{batch}} + 0.10\,r_{\text{affinity}} + 0.10\,r_{\text{cloud}},
+  \end{aligned}
+\end{equation}
+前三项是标准负载均衡信号（$r_{\text{time}}$、$r_{\text{balance}}$、$r_{\text{match}}$ 分别惩罚长完成时间、单机过载与算力不匹配）；后四项为 AIGC 特定：$r_{\text{warm}}$（模型已加载时 $+1$，否则取 $-\text{cold\_load}/20$ 并 clip 至 $[-1,0]$）；$r_{\text{batch}}$ 鼓励加入同模型已有批（decode 权重更高）；$r_{\text{affinity}}$ 在 Decode 与其 Prefill 同址时 $+1$，否则在 KV 迁移成本非平凡时 $-0.5$；$r_{\text{cloud}}$（$=-u_{\text{cloud}}$，仅当边缘存在可行替代时启用）抑制我们在早期实验中观察到的"always-cloud"吸引子（见 \S\ref{sec:implications}）。
+
+\textbf{网络结构与训练。}3 层 MLP 编码器（$\text{state} \to 256 \to 128 \to 64$，LayerNorm + ReLU）输出共享表征；Actor 头（Linear $\to$ 带掩码 softmax）输出动作概率，Critic 头（Linear $\to$ ReLU $\to$ Linear）输出价值估计。我们以 PPO~\cite{schulman2017ppo} 训练（clip $\epsilon{=}0.2$）、GAE~\cite{schulman2015gae}（$\gamma{=}0.95$、$\lambda{=}0.90$）与熵正则（系数 $0.05$，预训练后降至 $0.01$）；每次更新使用 32 条缓存 transition、4 个 epoch。关键地，我们在在线训练前进行 \textbf{20 个 episode 的预训练}（约 10--15~s 墙钟），起手 30 步使用均匀随机动作 warmup；若关闭此预训练，策略会坍缩到"always-cloud"，\slo{} 下降 38\%（\S\ref{sec:ablation}）。每个 AIGC 组件由构造器开关控制，从而支持 \S\ref{sec:ablation} 的 12 组件消融。

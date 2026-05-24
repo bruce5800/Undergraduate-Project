@@ -1,0 +1,45 @@
+% =============================================================
+% §2 背景
+% =============================================================
+\section{背景}
+\label{sec:background}
+
+\subsection{LLM 推理：Prefill、Decode 与 KV cache}
+\label{sec:bg-inference}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.95\textwidth]{distributed_transformer.pdf}
+  \caption{背景知识：结合数据并行、张量并行与流水线并行（DP\,$\times$\,TP\,$\times$\,PP）以及 ZeRO 风格分片优化器状态的分布式 Transformer 训练。本文聚焦于由此训练得到的模型的\emph{推理调度}，该过程继承了训练阶段并行策略所施加的模型权重与 KV cache 本地性约束。}
+  \label{fig:transformer}
+\end{figure*}
+
+现代 LLM 是 decoder-only Transformer~\cite{vaswani2017attention,brown2020gpt3}，按 token 顺序逐个输出。推理分为两个硬件特征截然不同的阶段。\textbf{Prefill} 每请求执行一次：在一次前向传播中并行处理 $L_p$ 个 prompt token，产生首个输出 token 及每个 Transformer 层对应的\emph{键值缓存}（KV cache）；计算复杂度为 $O(L_p \cdot d)$，对非平凡长度的 prompt 可使 GPU 算力饱和。\textbf{Decode} 随后迭代执行，每个输出 token 一步（A100 上约 $10$--$80$~ms），复用已存 KV cache 并将其增长一行；对长生成场景，$L_o$ 步 decode 主导端到端延迟。
+
+KV cache 体积大（LLaMA 类模型约 $0.5$--$2.5$ MB 每 token 每层；例如 1000-token LLaMA-13B 会话约 800~MB，常大于激活内存）且 \textbf{与运行 Prefill 的 GPU 绑定}：在另一台服务器上 decode 要么通过网络拷贝数百 MB，要么重做 prefill。
+
+除 Transformer LLM 之外，AIGC 负载还包括文本生成图像的扩散模型（Stable Diffusion XL）。其推理在每个去噪步均调用同一个 U-Net（图~\ref{fig:diffusion}）---在结构上与 LLM 不同，但在模型驻留与批处理特性上共享同样的关注点，构成本文的另一项动机。
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.95\textwidth]{distributed_diffusion.pdf}
+  \caption{背景知识：扩散模型推理。前向过程逐步向清晰图像添加高斯噪声（$x_0 \to x_T$，无可学参数）；反向过程迭代去噪（$x_T \to x_0$），每步调用共享的 U-Net。每次推理因而触发 $T$ 次 U-Net 前向，使模型驻留与批处理与 LLM decode 同等重要。}
+  \label{fig:diffusion}
+\end{figure*}
+
+\subsection{连续批处理与现代服务系统}
+\label{sec:bg-batching}
+
+吞吐量导向的服务系统利用一项关键优化：\textbf{将同模型请求批处理到同一次前向}。$B$ 个请求合并后耗时为 $T_{\text{solo}}(1+(B-1)\alpha)$，相对 $B \cdot T_{\text{solo}}$ 提供 $5$--$8\times$ 吞吐量加速。Decode 阶段每增加一个请求的开销 $<5\%$（受 HBM 带宽约束）；prefill 阶段开销约 30\%（受算力约束，融合较难）。
+
+由 Orca~\cite{yu2022orca} 引入、vLLM~\cite{kwon2023vllm}（含 PagedAttention 非连续 KV 分配）与 Sarathi-Serve~\cite{agrawal2024sarathi}（分块 prefill）进一步精炼的\textbf{连续（迭代级）批处理}，在每个 decoder 迭代都动态重组当前批：完成的请求即时退出，排队请求中途加入。这些引擎级优化仅作用于\textbf{单台服务器之内}；\emph{某个请求由哪台服务器处理}这一上游问题正是本文聚焦的对象。
+
+\subsection{云--边协同 LLM 部署}
+\label{sec:bg-cloudedge}
+
+生产环境的 LLM 服务越来越多地跨越异构算力池部署：一台或多台云服务器配备高端加速器（A100/H100，显存 $\ge$80~GB），可承载 LLaMA-70B INT8（约 70~GB）的高吞吐批处理；一组异构边缘服务器涵盖数据中心 A100、工作站级 T4 直至嵌入式 Jetson Orin，显存 16--64~GB、算力 10--50 TFLOPS、功耗 30--250~W TDP，适合 LLaMA-7B/13B 等小模型；一张网络拓扑覆盖云--边往返 30--65~ms、边--边往返 8--23~ms 的延迟范围。该范式由三种经济性驱动：\textbf{延迟}（边缘临近降低 TTFT）、\textbf{成本}（边缘 GPU 每 FLOP 便宜 1--10$\times$，功耗低 2--10$\times$）与\textbf{数据主权}。Splitwise~\cite{patel2024splitwise} 与 DistServe~\cite{zhong2024distserve} 倡导将 prefill 与 decode 拆分到不同代次的硬件上；Llumnix~\cite{sun2024llumnix} 在实例间运行时迁移请求。我们与它们共享动机，但解决一个互补问题：\emph{在拓扑固定的异构池上，初始请求应分派到哪台服务器}。
+
+\subsection{调度方法一览}
+\label{sec:bg-sched}
+
+云--边调度文献历来沿三条路线展开，且都未原生编码 AIGC 物理。\textbf{启发式调度。}HEFT~\cite{topcuoglu2002heft}（按上行 rank 优先级 + EFT 最小化分派）、Round-Robin / Least-Loaded / Shortest-Queue 将任务视作独立黑盒，无法表达"优先选择已加载所需模型的服务器"等偏好。\textbf{元启发式搜索。}GA~\cite{holland1975adaptation}、PSO~\cite{kennedy1995pso} 需手工设计 fitness 函数；要加入 AIGC 物理就需手工再加额外项---这正是本文用学习方法自动化的环节。\textbf{学习式调度。}Decima~\cite{mao2019decima}（Spark DAG 上的 GNN + REINFORCE）、RLScheduler~\cite{zhang2020rlscheduler}（HPC 批作业），以及与本文部署拓扑最接近的 A3C-R2N2~\cite{tuli2022a3cr2n}（actor-critic + GRU/残差编码器，针对\emph{通用}边缘--云任务，预 LLM 时代）。我们在该谱系上引入 AIGC 感知的状态与奖励，并以 A3C-R2N2 为对照基线（第~\ref{sec:eval} 节）以隔离出 AIGC 的具体贡献。

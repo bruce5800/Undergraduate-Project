@@ -1,0 +1,15 @@
+% =============================================================
+% §7 相关工作
+% =============================================================
+\section{相关工作}
+\label{sec:related}
+
+\textbf{LLM 服务系统。}Orca~\cite{yu2022orca} 引入迭代级连续批处理；vLLM~\cite{kwon2023vllm} 通过 PagedAttention 实现非连续 KV 分配（吞吐 $2$--$4\times$）；Sarathi-Serve~\cite{agrawal2024sarathi} 引入分块 prefill 以缓解混合批中生成阻塞。这些系统优化\emph{单台}服务器 GPU 内部行为，与本文跨服务器调度\textbf{正交}：本文的准入式批处理是它们迭代级批处理的可计算抽象，本文 RL 的单请求分派决策可无改地接入 vLLM 风格引擎。
+
+\textbf{集群调度。}HEFT~\cite{topcuoglu2002heft} 按上行 rank 静态分派 DAG 任务；遗传算法~\cite{holland1975adaptation} 与 PSO~\cite{kennedy1995pso} 在调度 fitness 空间上做群体搜索；产业部署多用更简单的负载均衡原语（RR、Least-Loaded、Shortest-Queue）。我们在 \S\ref{sec:eval} 全部比较，无一原生编码 AIGC 物理。
+
+\textbf{用于调度的强化学习。}Decima~\cite{mao2019decima} 在 Spark DAG 上用 GNN + REINFORCE；RLScheduler~\cite{zhang2020rlscheduler} 将 RL 用于 HPC 批作业；A3C-R2N2~\cite{tuli2022a3cr2n} 用异步 actor-critic + 残差循环编码器处理通用边缘--云 IoT 任务---部署拓扑最接近本文，但 predates LLM 时代。我们将 A3C-R2N2 作为\textbf{对照基线}（\S\ref{sec:main-results}）：固定 actor-critic 主干以隔离本文 AIGC 状态/奖励设计的具体贡献（$+28\%$ \slo{}、$-7\%$ \etok{}、$p<0.05$）。我们还实现了 Decima 风格的 GNN 变体，发现在实际训练预算下，带显式 AIGC 特征的前馈 MLP 持平甚至超出 GNN 的关系推理---这是相对 Decima 原始 Spark-DAG 工作的有趣偏离。
+
+\textbf{AIGC 专用调度。}Splitwise、DistServe、Llumnix~\cite{patel2024splitwise,zhong2024distserve,sun2024llumnix}（\S\ref{sec:bg-cloudedge}）设计\emph{部署拓扑}（阶段拆分、解耦池）与\emph{集群内反应式策略}（中途迁移），将初始请求分派当作正交问题。\textbf{本文聚焦初始分派}：两类工作可组合---Llumnix 风格迁移可在运行时精化我们的初始分派；本文调度器可填充 Splitwise 风格部署中的 prefill/decode 池。
+
+\textbf{仿真平台。}CloudSim~\cite{calheiros2011cloudsim}、iFogSim~\cite{gupta2017ifogsim}、WorkflowSim~\cite{chen2012workflowsim} 针对通用云--雾或 DAG 负载，未建模 AIGC 物理；近期 LLM 服务仿真多关注单机内批处理动力学，而非跨服务器调度。据我们所知，本文仿真器（\S\ref{sec:simulator}）是首个开源平台，同时具备：（1）建模全部五项 AIGC 物理；（2）聚焦跨服务器调度；（3）原生支持 \slo{}+能耗 多目标评估。我们随 \S\ref{sec:eval} 的 30+ 配置一并发布复现 manifest。

@@ -1,0 +1,78 @@
+% =============================================================
+% 面向云–边 LLM 推理调度的 Pareto 占优强化学习方法
+% 中文版（基于英文 IEEEtran 双栏，xeCJK 渲染中文）
+%
+% 编译：make  (使用 xelatex + bibtex + 2x xelatex)
+% =============================================================
+
+\documentclass[conference]{IEEEtran}
+
+% --- 中文支持（ctex + xeCJK，IEEEtran 双栏不变） -----------------
+\usepackage[UTF8,fontset=macnew]{ctex}
+% macnew 选 PingFang/Songti 系列；其他系统也可换 fontset=adobe / windows / ubuntu
+
+% --- 通用宏包 --------------------------------------------------
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{textcomp}
+
+% --- 图片路径 ---------------------------------------------------
+\graphicspath{{figures/}}
+
+% --- hyperref 样式 ---------------------------------------------
+\hypersetup{
+  colorlinks = true,
+  linkcolor  = black,
+  citecolor  = blue!50!black,
+  urlcolor   = blue!50!black,
+}
+
+% --- 常用宏 ----------------------------------------------------
+\newcommand{\slo}{SLO}
+\newcommand{\etok}{$E$/tok}
+
+% --- 中英混排时给 LaTeX 更多换行灵活度，减少超宽溢出 ---------
+\sloppy
+\emergencystretch=3em
+
+% --- 标题与作者 ------------------------------------------------
+\title{面向云--边 LLM 推理调度的 Pareto 占优强化学习方法}
+
+\author{
+  \IEEEauthorblockN{匿名作者}
+  \IEEEauthorblockA{送审单位匿名\\
+                    邮箱：anonymous@example.com}
+}
+
+\begin{document}
+
+\maketitle
+
+% =============================================================
+\input{sections/00_abstract}
+
+\begin{IEEEkeywords}
+LLM 推理；AIGC；云边协同；强化学习；调度；能效；Pareto 优化。
+\end{IEEEkeywords}
+
+% =============================================================
+\input{sections/01_intro}
+\input{sections/02_background}
+\input{sections/03_formulation}
+\input{sections/04_system}
+\input{sections/05_evaluation}
+\input{sections/06_discussion}
+\input{sections/07_related}
+\input{sections/08_conclusion}
+
+% =============================================================
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
