@@ -63,14 +63,8 @@ manifests for all 30+ reported configurations.
 
 **Originality and prior dissemination.** This manuscript is
 original, has not been published elsewhere, and is not under
-consideration by any other journal. [IF APPLICABLE: An early
-prototype of the problem setup was explored in the first author's
-undergraduate thesis; the present work is a substantial extension
-(new simulator milestones M3-M4, energy model, eight baselines,
-the 12-component ablation, and all sensitivity studies), with the
-results and claims reported here developed independently
-afterward.] All authors have approved the submission and declare no
-conflict of interest.
+consideration by any other journal. All authors have approved the
+submission and declare no conflict of interest.
 
 **Suggested reviewers.** We suggest the following experts whose
 work is closely related and who have no conflict of interest with

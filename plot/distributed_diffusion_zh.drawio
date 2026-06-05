@@ -1,65 +1,22 @@
-<mxfile host="app.diagrams.net" modified="2026-05-23T17:00:00.000Z" agent="Mozilla/5.0" version="22.1.0" type="device">
+<mxfile host="app.diagrams.net" modified="2026-05-24T12:00:00.000Z" agent="Mozilla/5.0" version="22.1.0" type="device">
   <diagram name="Diffusion Model Architecture (ZH)" id="fig-diffusion-zh">
-    <mxGraphModel dx="1422" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="980" math="0" shadow="0">
+    <mxGraphModel dx="1422" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1140" pageHeight="940" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
 
-        <!-- ====== 标题 ====== -->
+        <!-- ====== 标题（居中于内容，中心 ~570） ====== -->
         <mxCell id="title" value="扩散模型：前向加噪 + U-Net 反向去噪（背景知识）"
                 style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;"
                 vertex="1" parent="1">
-          <mxGeometry x="300" y="20" width="800" height="30" as="geometry" />
-        </mxCell>
-
-        <!-- ====== 图例 ====== -->
-        <mxCell id="legend_box" value="&lt;b&gt;图例&lt;/b&gt;"
-                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=12;verticalAlign=top;spacingTop=8;align=left;spacingLeft=10;"
-                vertex="1" parent="1">
-          <mxGeometry x="1110" y="120" width="270" height="130" as="geometry" />
-        </mxCell>
-        <mxCell id="legend_fwd" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;"
-                edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1130" y="158" as="sourcePoint" />
-            <mxPoint x="1190" y="158" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="legend_fwd_text" value="前向：q(x_t|x_t−1)"
-                style="text;html=1;align=left;fontSize=11;"
-                vertex="1" parent="1">
-          <mxGeometry x="1200" y="148" width="170" height="20" as="geometry" />
-        </mxCell>
-        <mxCell id="legend_rev" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=2;"
-                edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1130" y="193" as="sourcePoint" />
-            <mxPoint x="1190" y="193" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="legend_rev_text" value="反向：p_θ(x_t−1|x_t)"
-                style="text;html=1;align=left;fontSize=11;"
-                vertex="1" parent="1">
-          <mxGeometry x="1200" y="183" width="170" height="20" as="geometry" />
-        </mxCell>
-        <mxCell id="legend_unet" style="endArrow=classic;html=1;strokeColor=#d6b656;strokeWidth=2;dashed=1;"
-                edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1130" y="228" as="sourcePoint" />
-            <mxPoint x="1190" y="228" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="legend_unet_text" value="U-Net 调用"
-                style="text;html=1;align=left;fontSize=11;"
-                vertex="1" parent="1">
-          <mxGeometry x="1200" y="218" width="170" height="20" as="geometry" />
+          <mxGeometry x="70" y="20" width="1000" height="30" as="geometry" />
         </mxCell>
 
         <!-- ====== 噪声调度控制器 ====== -->
         <mxCell id="schedule" value="&lt;b&gt;噪声调度 (Noise Schedule)&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;β_t（线性或余弦等）；定义每个 timestep t ∈ [0, T] 的噪声强度&lt;/span&gt;"
                 style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;verticalAlign=middle;align=center;"
                 vertex="1" parent="1">
-          <mxGeometry x="380" y="120" width="550" height="60" as="geometry" />
+          <mxGeometry x="295" y="120" width="550" height="60" as="geometry" />
         </mxCell>
 
         <!-- ====== 前向过程节区 ====== -->
@@ -69,7 +26,6 @@
           <mxGeometry x="50" y="220" width="1040" height="28" as="geometry" />
         </mxCell>
 
-        <!-- 5 个前向 timestep 状态：x_0 → x_T（从左到右，噪声渐增） -->
         <mxCell id="fwd_x0" value="&lt;b&gt;x_0&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px;color:#555;'&gt;干净图像&lt;/span&gt;"
                 style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;verticalAlign=middle;align=center;"
                 vertex="1" parent="1">
@@ -96,8 +52,7 @@
           <mxGeometry x="900" y="270" width="160" height="80" as="geometry" />
         </mxCell>
 
-        <!-- 前向箭头 -->
-        <mxCell id="fwd_a01" value="+β_1 噪声" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;verticalAlign=bottom;"
+        <mxCell id="fwd_a01" value="+β_1 噪声" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;"
                 edge="1" parent="1" source="fwd_x0" target="fwd_x1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -109,7 +64,7 @@
                 edge="1" parent="1" source="fwd_x2" target="fwd_x3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="fwd_a3T" value="+β_T 噪声" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;verticalAlign=bottom;"
+        <mxCell id="fwd_a3T" value="+β_T 噪声" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;"
                 edge="1" parent="1" source="fwd_x3" target="fwd_xT">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -121,7 +76,6 @@
           <mxGeometry x="50" y="380" width="1040" height="28" as="geometry" />
         </mxCell>
 
-        <!-- 5 个反向 timestep 状态：x_T → x_0（沿迭代顺序从左到右） -->
         <mxCell id="rev_xT" value="&lt;b&gt;x_T&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px;color:#fff;'&gt;采样自高斯&lt;/span&gt;"
                 style="rounded=1;whiteSpace=wrap;html=1;fillColor=#5a7a9a;strokeColor=#6c8ebf;fontSize=11;fontColor=#FFFFFF;verticalAlign=middle;align=center;"
                 vertex="1" parent="1">
@@ -148,7 +102,6 @@
           <mxGeometry x="900" y="430" width="160" height="80" as="geometry" />
         </mxCell>
 
-        <!-- 反向箭头 -->
         <mxCell id="rev_aT3" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=2;"
                 edge="1" parent="1" source="rev_xT" target="rev_x3">
           <mxGeometry relative="1" as="geometry" />
@@ -191,7 +144,6 @@
           <mxGeometry x="850" y="650" width="240" height="140" as="geometry" />
         </mxCell>
 
-        <!-- U-Net 内部数据流 + 跳跃连接 -->
         <mxCell id="unet_e_m" style="endArrow=classic;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#d6b656;strokeWidth=2;"
                 edge="1" parent="1" source="unet_enc" target="unet_mid">
           <mxGeometry relative="1" as="geometry" />
@@ -200,24 +152,20 @@
                 edge="1" parent="1" source="unet_mid" target="unet_dec">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="unet_skip" value="跳跃连接 (skip connection)"
-                style="endArrow=classic;html=1;exitX=0.5;exitY=0;entryX=0.5;entryY=0;strokeColor=#9673a6;strokeWidth=2;dashed=1;fontSize=10;"
+        <mxCell id="unet_skip" value="跳跃连接 (skip)"
+                style="endArrow=classic;html=1;exitX=0.5;exitY=0;entryX=0.5;entryY=0;strokeColor=#9673a6;strokeWidth=2;dashed=1;fontSize=10;fontColor=#9673a6;labelBackgroundColor=#ffffff;rounded=1;"
                 edge="1" parent="1" source="unet_enc" target="unet_dec">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="270" y="620" />
-              <mxPoint x="970" y="620" />
+              <mxPoint x="270" y="630" />
+              <mxPoint x="970" y="630" />
             </Array>
           </mxGeometry>
         </mxCell>
 
-        <!-- ====== 标注：每个反向 step 都调用 U-Net ====== -->
+        <!-- ====== U-Net 调用箭头（黄虚线） ====== -->
         <mxCell id="invoke_1" style="endArrow=classic;html=1;exitX=0.5;exitY=1;entryX=0.2;entryY=0;strokeColor=#d6b656;strokeWidth=1.5;dashed=1;"
                 edge="1" parent="1" source="rev_xT" target="unet_enc">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="invoke_2" style="endArrow=classic;html=1;exitX=0.5;exitY=1;entryX=0.4;entryY=0;strokeColor=#d6b656;strokeWidth=1.5;dashed=1;"
-                edge="1" parent="1" source="rev_x3" target="unet_enc">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="invoke_3" style="endArrow=classic;html=1;exitX=0.5;exitY=1;entryX=0.6;entryY=0;strokeColor=#d6b656;strokeWidth=1.5;dashed=1;"
@@ -229,7 +177,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- 调度同时控制前向与反向两个过程 -->
+        <!-- ====== 调度同时控制前向与反向 ====== -->
         <mxCell id="sched_to_fwd" style="endArrow=classic;html=1;exitX=0.3;exitY=1;entryX=0.5;entryY=0;strokeColor=#9673a6;strokeWidth=1.5;dashed=1;"
                 edge="1" parent="1" source="schedule" target="fwd_bar">
           <mxGeometry relative="1" as="geometry" />
@@ -239,11 +187,57 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- 底部注释：仿真中的应用相关性 -->
+        <!-- ====== 底部注释 ====== -->
         <mxCell id="footnote" value="&lt;i&gt;本文仿真中：每个 diffusion 请求执行 steps_default 个反向去噪步骤（如 SDXL = 30），每一步都是一次 U-Net 前向传播。&lt;/i&gt;"
                 style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;fontColor=#666;"
                 vertex="1" parent="1">
-          <mxGeometry x="100" y="830" width="990" height="30" as="geometry" />
+          <mxGeometry x="100" y="820" width="990" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ====== 图例：底部居中横向排列 ====== -->
+        <mxCell id="legend_title" value="图例："
+                style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=1;"
+                vertex="1" parent="1">
+          <mxGeometry x="250" y="880" width="55" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_fwd_line" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="305" y="890" as="sourcePoint" />
+            <mxPoint x="350" y="890" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg_fwd_text" value="前向：q(x_t | x_{t−1})"
+                style="text;html=1;align=left;verticalAlign=middle;fontSize=11;"
+                vertex="1" parent="1">
+          <mxGeometry x="357" y="880" width="150" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_rev_line" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=2;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="525" y="890" as="sourcePoint" />
+            <mxPoint x="570" y="890" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg_rev_text" value="反向：p_θ(x_{t−1} | x_t)"
+                style="text;html=1;align=left;verticalAlign=middle;fontSize=11;"
+                vertex="1" parent="1">
+          <mxGeometry x="577" y="880" width="160" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_unet_line" style="endArrow=classic;html=1;strokeColor=#d6b656;strokeWidth=2;dashed=1;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="755" y="890" as="sourcePoint" />
+            <mxPoint x="800" y="890" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg_unet_text" value="U-Net 调用"
+                style="text;html=1;align=left;verticalAlign=middle;fontSize=11;"
+                vertex="1" parent="1">
+          <mxGeometry x="807" y="880" width="100" height="20" as="geometry" />
         </mxCell>
 
       </root>

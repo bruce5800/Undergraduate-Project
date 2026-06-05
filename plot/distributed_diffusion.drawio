@@ -1,65 +1,22 @@
-<mxfile host="app.diagrams.net" modified="2026-05-21T17:00:00.000Z" agent="Mozilla/5.0" version="22.1.0" type="device">
+<mxfile host="app.diagrams.net" modified="2026-05-24T12:00:00.000Z" agent="Mozilla/5.0" version="22.1.0" type="device">
   <diagram name="Diffusion Model Architecture" id="fig-diffusion">
-    <mxGraphModel dx="1422" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="980" math="0" shadow="0">
+    <mxGraphModel dx="1422" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1140" pageHeight="940" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
 
-        <!-- ====== Title ====== -->
+        <!-- ====== Title (centered over content, center ~570) ====== -->
         <mxCell id="title" value="Diffusion Model: Forward Noising + Reverse Denoising via U-Net (background)"
                 style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;"
                 vertex="1" parent="1">
-          <mxGeometry x="300" y="20" width="800" height="30" as="geometry" />
-        </mxCell>
-
-        <!-- ====== Legend ====== -->
-        <mxCell id="legend_box" value="&lt;b&gt;Legend&lt;/b&gt;"
-                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=12;verticalAlign=top;spacingTop=8;align=left;spacingLeft=10;"
-                vertex="1" parent="1">
-          <mxGeometry x="1110" y="120" width="270" height="130" as="geometry" />
-        </mxCell>
-        <mxCell id="legend_fwd" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;"
-                edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1130" y="158" as="sourcePoint" />
-            <mxPoint x="1190" y="158" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="legend_fwd_text" value="forward: q(x_t|x_t−1)"
-                style="text;html=1;align=left;fontSize=11;"
-                vertex="1" parent="1">
-          <mxGeometry x="1200" y="148" width="170" height="20" as="geometry" />
-        </mxCell>
-        <mxCell id="legend_rev" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=2;"
-                edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1130" y="193" as="sourcePoint" />
-            <mxPoint x="1190" y="193" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="legend_rev_text" value="reverse: p_θ(x_t−1|x_t)"
-                style="text;html=1;align=left;fontSize=11;"
-                vertex="1" parent="1">
-          <mxGeometry x="1200" y="183" width="170" height="20" as="geometry" />
-        </mxCell>
-        <mxCell id="legend_unet" style="endArrow=classic;html=1;strokeColor=#d6b656;strokeWidth=2;dashed=1;"
-                edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1130" y="228" as="sourcePoint" />
-            <mxPoint x="1190" y="228" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="legend_unet_text" value="U-Net invocation"
-                style="text;html=1;align=left;fontSize=11;"
-                vertex="1" parent="1">
-          <mxGeometry x="1200" y="218" width="170" height="20" as="geometry" />
+          <mxGeometry x="70" y="20" width="1000" height="30" as="geometry" />
         </mxCell>
 
         <!-- ====== Schedule controller ====== -->
         <mxCell id="schedule" value="&lt;b&gt;Noise Schedule&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#555;'&gt;β_t (e.g. linear or cosine); defines noise level at every timestep t ∈ [0, T]&lt;/span&gt;"
                 style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;verticalAlign=middle;align=center;"
                 vertex="1" parent="1">
-          <mxGeometry x="380" y="120" width="550" height="60" as="geometry" />
+          <mxGeometry x="295" y="120" width="550" height="60" as="geometry" />
         </mxCell>
 
         <!-- ====== Forward Process section ====== -->
@@ -69,7 +26,6 @@
           <mxGeometry x="50" y="220" width="1040" height="28" as="geometry" />
         </mxCell>
 
-        <!-- 5 forward timestep states: x_0 → x_T (left to right, increasing noise) -->
         <mxCell id="fwd_x0" value="&lt;b&gt;x_0&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px;color:#555;'&gt;clean image&lt;/span&gt;"
                 style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;verticalAlign=middle;align=center;"
                 vertex="1" parent="1">
@@ -96,8 +52,7 @@
           <mxGeometry x="900" y="270" width="160" height="80" as="geometry" />
         </mxCell>
 
-        <!-- Forward arrows -->
-        <mxCell id="fwd_a01" value="+β_1 noise" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;verticalAlign=bottom;"
+        <mxCell id="fwd_a01" value="+β_1 noise" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;"
                 edge="1" parent="1" source="fwd_x0" target="fwd_x1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -109,7 +64,7 @@
                 edge="1" parent="1" source="fwd_x2" target="fwd_x3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="fwd_a3T" value="+β_T noise" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;verticalAlign=bottom;"
+        <mxCell id="fwd_a3T" value="+β_T noise" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;"
                 edge="1" parent="1" source="fwd_x3" target="fwd_xT">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -121,7 +76,6 @@
           <mxGeometry x="50" y="380" width="1040" height="28" as="geometry" />
         </mxCell>
 
-        <!-- 5 reverse timestep states: x_T → x_0 (still left to right in iteration order) -->
         <mxCell id="rev_xT" value="&lt;b&gt;x_T&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px;color:#fff;'&gt;sampled noise&lt;/span&gt;"
                 style="rounded=1;whiteSpace=wrap;html=1;fillColor=#5a7a9a;strokeColor=#6c8ebf;fontSize=11;fontColor=#FFFFFF;verticalAlign=middle;align=center;"
                 vertex="1" parent="1">
@@ -148,7 +102,6 @@
           <mxGeometry x="900" y="430" width="160" height="80" as="geometry" />
         </mxCell>
 
-        <!-- Reverse arrows -->
         <mxCell id="rev_aT3" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=2;"
                 edge="1" parent="1" source="rev_xT" target="rev_x3">
           <mxGeometry relative="1" as="geometry" />
@@ -191,7 +144,6 @@
           <mxGeometry x="850" y="650" width="240" height="140" as="geometry" />
         </mxCell>
 
-        <!-- U-Net internal flow + skip connection -->
         <mxCell id="unet_e_m" style="endArrow=classic;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeColor=#d6b656;strokeWidth=2;"
                 edge="1" parent="1" source="unet_enc" target="unet_mid">
           <mxGeometry relative="1" as="geometry" />
@@ -201,24 +153,19 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="unet_skip" value="skip connection"
-                style="endArrow=classic;html=1;exitX=0.5;exitY=0;entryX=0.5;entryY=0;strokeColor=#9673a6;strokeWidth=2;dashed=1;fontSize=10;"
+                style="endArrow=classic;html=1;exitX=0.5;exitY=0;entryX=0.5;entryY=0;strokeColor=#9673a6;strokeWidth=2;dashed=1;fontSize=10;fontColor=#9673a6;labelBackgroundColor=#ffffff;rounded=1;"
                 edge="1" parent="1" source="unet_enc" target="unet_dec">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="270" y="620" />
-              <mxPoint x="970" y="620" />
+              <mxPoint x="270" y="630" />
+              <mxPoint x="970" y="630" />
             </Array>
           </mxGeometry>
         </mxCell>
 
-        <!-- ====== Annotations: U-Net is invoked at each reverse step ====== -->
-        <!-- Dashed yellow arrows from reverse blocks to U-Net (showing "invoke") -->
+        <!-- ====== U-Net invocation arrows (dashed yellow) ====== -->
         <mxCell id="invoke_1" style="endArrow=classic;html=1;exitX=0.5;exitY=1;entryX=0.2;entryY=0;strokeColor=#d6b656;strokeWidth=1.5;dashed=1;"
                 edge="1" parent="1" source="rev_xT" target="unet_enc">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="invoke_2" style="endArrow=classic;html=1;exitX=0.5;exitY=1;entryX=0.4;entryY=0;strokeColor=#d6b656;strokeWidth=1.5;dashed=1;"
-                edge="1" parent="1" source="rev_x3" target="unet_enc">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="invoke_3" style="endArrow=classic;html=1;exitX=0.5;exitY=1;entryX=0.6;entryY=0;strokeColor=#d6b656;strokeWidth=1.5;dashed=1;"
@@ -230,7 +177,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- Note: schedule controls both processes -->
+        <!-- ====== Schedule controls both processes ====== -->
         <mxCell id="sched_to_fwd" style="endArrow=classic;html=1;exitX=0.3;exitY=1;entryX=0.5;entryY=0;strokeColor=#9673a6;strokeWidth=1.5;dashed=1;"
                 edge="1" parent="1" source="schedule" target="fwd_bar">
           <mxGeometry relative="1" as="geometry" />
@@ -240,11 +187,57 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- Bottom note: the AIGC scheduling relevance -->
+        <!-- ====== Bottom note ====== -->
         <mxCell id="footnote" value="&lt;i&gt;In our simulation: each diffusion request runs reverse-process steps_default times (e.g. SDXL = 30), each step = a U-Net forward pass.&lt;/i&gt;"
                 style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;fontColor=#666;"
                 vertex="1" parent="1">
-          <mxGeometry x="100" y="830" width="990" height="30" as="geometry" />
+          <mxGeometry x="100" y="820" width="990" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Legend: horizontal strip centered at the bottom ====== -->
+        <mxCell id="legend_title" value="Legend:"
+                style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=1;"
+                vertex="1" parent="1">
+          <mxGeometry x="250" y="880" width="55" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_fwd_line" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=2;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="310" y="890" as="sourcePoint" />
+            <mxPoint x="355" y="890" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg_fwd_text" value="forward: q(x_t | x_{t−1})"
+                style="text;html=1;align=left;verticalAlign=middle;fontSize=11;"
+                vertex="1" parent="1">
+          <mxGeometry x="362" y="880" width="160" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_rev_line" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=2;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="540" y="890" as="sourcePoint" />
+            <mxPoint x="585" y="890" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg_rev_text" value="reverse: p_θ(x_{t−1} | x_t)"
+                style="text;html=1;align=left;verticalAlign=middle;fontSize=11;"
+                vertex="1" parent="1">
+          <mxGeometry x="592" y="880" width="170" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_unet_line" style="endArrow=classic;html=1;strokeColor=#d6b656;strokeWidth=2;dashed=1;"
+                edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="780" y="890" as="sourcePoint" />
+            <mxPoint x="825" y="890" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg_unet_text" value="U-Net invocation"
+                style="text;html=1;align=left;verticalAlign=middle;fontSize=11;"
+                vertex="1" parent="1">
+          <mxGeometry x="832" y="880" width="120" height="20" as="geometry" />
         </mxCell>
 
       </root>
