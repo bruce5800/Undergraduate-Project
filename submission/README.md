@@ -37,3 +37,4 @@
 1. ~~去年毕设是否进了知网/学校机构库~~ → **已确认未入库**，cover letter 毕设段已删除，正文无需提毕设、无 self-citation 负担。
 2. **推荐审稿人 3 位真名**（建议从你 references.bib 里引用的作者挑，避开同单位/同导师）。
 3. **作者署名与单位**：`paper/main.tex` 第 41–46 行目前是匿名占位，投稿前替换为真实信息（FGCS 单盲，需作者实名）。
+4. 🔴 **导出 RL 调度器架构图（Fig 4）**：`paper/figures/rl_scheduler_arch.pdf` 现在是**红框 PLACEHOLDER 占位**。投稿前务必在 draw.io 打开 `plot/rl_scheduler_arch.drawio` → Export as PDF（勾 Crop）→ 覆盖该文件（再导一份 .png）。否则论文里 Fig 4 会是占位图。中文版 symlink 同一文件，导一次即可。

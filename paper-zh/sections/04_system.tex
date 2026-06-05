@@ -33,7 +33,14 @@
 \subsection{AIGC 感知强化学习调度器}
 \label{sec:rl}
 
-我们将单任务分派建模为 MDP，并用 PPO 求解。
+我们将单任务分派建模为 MDP，并用 PPO 求解；图~\ref{fig:rl-arch} 给出该决策闭环的概览：从逐任务状态编码、经 actor-critic 策略，到 7 项奖励与闭环 PPO 更新。
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.86\textwidth]{rl_scheduler_arch.pdf}
+  \caption{AIGC 感知 PPO 调度器的 MDP 决策闭环。对每个 \texttt{READY} 任务，状态编码器（\textcircled{1}）构建 96 维向量，其每服务器块携带五个 AIGC 特定特征（高亮）；actor-critic 策略（\textcircled{2}）输出带掩码的动作分布与价值估计；所选服务器被派发进仿真器（\textcircled{3}，五项 AIGC 物理）；7 项稠密奖励（\textcircled{4}）分为负载均衡、AIGC 感知与防坍缩三组；PPO 更新（\textcircled{5}）经策略梯度闭合回路。预训练正是让策略跳出 always-cloud 吸引子的关键。}
+  \label{fig:rl-arch}
+\end{figure*}
 
 \textbf{状态。}对每个 READY 任务，编码器输出维度为 $(10+|\mathcal{M}|)+2+10N$ 的扁平向量，分为三块：\emph{任务块}（计算需求、工作量、输入/输出大小、依赖与后继数、任务类型 one-hot、归一化 KV 大小、模型 ID one-hot），\emph{全局块} 2 维（READY 队列长度、已完成比例），以及 10 维 $\times N$ 服务器的\emph{服务器块}（五个通用特征：算力/显存利用率、带宽、队列长度、到该服务器的传输时间估计；五个\textbf{AIGC 特定特征}：（i）目标模型是否已加载、（ii）归一化批占用率、（iii）剩余显存比例、（iv）归一化冷加载代价、（v）\emph{兄弟服务器指示}---对 Decode 任务，标记候选服务器是否就是 Prefill 落位的那台）。兄弟指示是本工作引入的最新颖特征：让策略直接读出 KV 本地性，免去对请求 ID 的推理。当 edge${=}5$、$|\mathcal{M}|{=}4$ 时，状态维度为 96。
 

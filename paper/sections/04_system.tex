@@ -94,7 +94,28 @@ shows the end-to-end data flow.
 \subsection{AIGC-Aware Reinforcement Learning Scheduler}
 \label{sec:rl}
 
-We cast per-task dispatch as an MDP and solve it with PPO.
+We cast per-task dispatch as an MDP and solve it with PPO;
+Fig.~\ref{fig:rl-arch} overviews the resulting decision loop,
+from per-task state encoding through the actor-critic policy to
+the seven-term reward and the PPO update that closes the loop.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.86\textwidth]{rl_scheduler_arch.pdf}
+  \caption{AIGC-aware PPO scheduler as an MDP decision loop. For
+    each \texttt{READY} task, the state encoder (\textcircled{1})
+    builds a 96-dim vector whose per-server block carries five
+    AIGC-specific features (highlighted); the actor-critic policy
+    (\textcircled{2}) emits a masked action distribution and a
+    value estimate; the chosen server is dispatched into the
+    simulator (\textcircled{3}, the five AIGC physics); the
+    seven-term dense reward (\textcircled{4}) groups
+    load-balancing, AIGC-aware, and anti-collapse signals; and the
+    PPO update (\textcircled{5}) closes the loop via policy
+    gradient. Pretraining is what lets the policy escape the
+    always-cloud attractor.}
+  \label{fig:rl-arch}
+\end{figure*}
 
 \textbf{State.} For each \texttt{READY} task the encoder emits
 a flat vector of dimension $(10+|\mathcal{M}|)+2+10N$ holding
