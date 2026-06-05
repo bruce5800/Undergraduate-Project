@@ -67,17 +67,30 @@ consideration by any other journal. All authors have approved the
 submission and declare no conflict of interest.
 
 **Suggested reviewers.** We suggest the following experts whose
-work is closely related and who have no conflict of interest with
-the authors:
-- [Name 1, affiliation, email] — LLM serving systems / continuous batching
-- [Name 2, affiliation, email] — RL for cluster scheduling
-- [Name 3, affiliation, email] — edge/cloud inference and energy efficiency
+work is closely related and who, to our knowledge, have no
+conflict of interest with the author (no shared affiliation,
+advising relationship, or recent co-authorship). Pick any three;
+emails should be taken from each scholar's official institutional
+page.
+
+1. **Hao Zhang** — University of California, San Diego (CSE /
+   HDSI). Expertise: LLM serving systems and inference engines
+   (vLLM, DistServe). [email: verify at ucsd.edu]
+2. **Rajkumar Buyya** — University of Melbourne (CLOUDS Lab).
+   Expertise: cloud–edge/fog scheduling and energy-aware resource
+   management. [email: verify at unimelb.edu.au]
+3. **Xin Jin** — Peking University (School of Computer Science).
+   Expertise: LLM serving and networked-systems scheduling
+   (DistServe). [email: verify at pku.edu.cn]
+4. **Ricardo Bianchini** — Microsoft / Microsoft Research.
+   Expertise: datacenter resource management and energy
+   efficiency (Splitwise). [email: verify at microsoft.com]
 
 We thank you for considering our submission and look forward to the
 reviewers' feedback.
 
 Sincerely,
 
-[Corresponding author name], on behalf of all authors
-[Affiliation]
-[Email] · [ORCID]
+Zhuolun Li (corresponding author)
+[Affiliation — fill in]
+Email: Li_zhuolun@126.com · ORCID: [fill in]
