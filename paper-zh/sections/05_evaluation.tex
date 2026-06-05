@@ -11,7 +11,7 @@
 
 \textbf{硬件配置。}1 台云级服务器（200~TFLOPS，128~GB 显存，等效 A100-80GB）+ 1--7 台异构边缘节点（10--50~TFLOPS，16--64~GB 显存，对照 Jetson AGX、T4、边缘 A100 部署建模）。云--边链路延迟 30--65~ms，边--边链路 8--23~ms。
 
-\textbf{工作负载。}采用对齐 Azure LLM Inference Trace 2023 公开统计的对数正态长度分布：prompt 长 $\sim\text{LogNormal}(\mu{=}5.5,\sigma{=}1.0)$，输出长 $\sim\text{LogNormal}(\mu{=}4.5,\sigma{=}1.2)$；请求到达为速率 $\lambda$ 的 Poisson 过程；模型在三种 LLaMA-7B/13B/70B-INT8 中均匀采样，模型参数与 vLLM、TensorRT-LLM 基准对齐。
+\textbf{工作负载。}采用对齐 Azure LLM Inference Trace 2023~\cite{azure2023llmtrace} 公开统计的对数正态长度分布：prompt 长 $\sim\text{LogNormal}(\mu{=}5.5,\sigma{=}1.0)$，输出长 $\sim\text{LogNormal}(\mu{=}4.5,\sigma{=}1.2)$；请求到达为速率 $\lambda$ 的 Poisson 过程；模型在三种 LLaMA-7B/13B/70B-INT8 中均匀采样，模型参数与 vLLM、TensorRT-LLM 基准对齐。
 
 \textbf{基线（9 种调度器）。}对比范围广覆盖：\textbf{RoundRobin}（无负载感知）、\textbf{LeastLoaded}（负载感知贪心）、\textbf{ShortestQueue}（队列感知贪心）、\textbf{HEFT}~\cite{topcuoglu2002heft}（标准 DAG 调度基线）、\textbf{GA}~\cite{holland1975adaptation} 与 \textbf{PSO}~\cite{kennedy1995pso}（元启发式搜索）、\textbf{A3C-R2N2}~\cite{tuli2022a3cr2n}（异步 actor-critic + GRU/残差编码器，\textbf{通用（非 AIGC）状态与奖励}）、\textbf{GNN}（与本文 RL 对照的 graph-neural-network 变体，将 AIGC 物理编码为任务--服务器二部图的\textbf{边特征}，受 Decima~\cite{mao2019decima} 启发）、\textbf{RL（本文）}（AIGC 感知 PPO 调度器，含显式 AIGC 状态与奖励整形）。
 

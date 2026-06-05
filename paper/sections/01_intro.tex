@@ -40,7 +40,8 @@ distinguish LLM inference:
 
 \begin{enumerate}
 \item \textbf{Model weight residency.} LLM weights (14--70~GB
-  for LLaMA-7B/13B/70B at FP16/INT8) live persistently in GPU
+  for LLaMA-7B/13B/70B~\cite{touvron2023llama} at FP16/INT8)
+  live persistently in GPU
   memory. Switching models incurs cold-load cost of 5--60~seconds---orders
   of magnitude larger than any per-request computation.
 

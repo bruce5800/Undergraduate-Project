@@ -26,8 +26,8 @@ Network latency 30--65~ms for cloud--edge links, 8--23~ms for
 edge--edge links.
 
 \textbf{Workload.} We use a log-normal request length
-distribution matching the published statistics of Azure LLM
-Inference Trace 2023: prompt length
+distribution matching the published statistics of the Azure LLM
+Inference Trace 2023~\cite{azure2023llmtrace}: prompt length
 $\sim \text{LogNormal}(\mu{=}5.5, \sigma{=}1.0)$, output
 length $\sim \text{LogNormal}(\mu{=}4.5, \sigma{=}1.2)$.
 Request arrival follows a Poisson process at rate $\lambda$.

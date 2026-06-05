@@ -13,7 +13,7 @@
 现有集群调度器（HEFT、GA、PSO 与 Decima~\cite{mao2019decima}、RLScheduler~\cite{zhang2020rlscheduler} 等学习式变体）原本为 Spark 作业、HPC 批任务等通用 DAG 负载设计。它们并未建模 LLM 推理在以下五项物理特性上的根本差异：
 
 \begin{enumerate}
-\item \textbf{模型权重驻留。}LLM 权重（LLaMA-7B/13B/70B 在 FP16/INT8 下为 14--70~GB）需持久驻留在 GPU 显存中。切换模型会引入 5--60 秒的冷加载开销---比任何单请求计算时间高出数个数量级。
+\item \textbf{模型权重驻留。}LLM 权重（LLaMA-7B/13B/70B~\cite{touvron2023llama} 在 FP16/INT8 下为 14--70~GB）需持久驻留在 GPU 显存中。切换模型会引入 5--60 秒的冷加载开销---比任何单请求计算时间高出数个数量级。
 
 \item \textbf{KV cache 本地性。}每个请求的 KV cache 在 prefill 阶段产生、在 decode 阶段消费，与运行 prefill 的 GPU 绑定。将 KV 跨服务器迁移每次需移动数百 MB 数据，时常成为 decode 延迟的主导因素。
 
