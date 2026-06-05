@@ -34,19 +34,29 @@
 
 ## 仍需你手动确认的事
 
-1. ~~去年毕设是否进了知网/学校机构库~~ → **已确认未入库**，cover letter 毕设段已删除，正文无需提毕设、无 self-citation 负担。
-2. ~~推荐审稿人 3 位真名~~ → **cover letter 已填 4 位候选**（Hao Zhang / Rajkumar Buyya / Xin Jin / Ricardo Bianchini），投稿时挑 3 位。⚠️ **邮箱需你逐个去官方主页核实后填入**（勿用猜测地址）。
-3. ~~作者单位~~ → **已填 University of Bristol, Faculty of Science and Engineering**（中英两版 main.tex + cover letter 落款），邮箱 `nu25406@bristol.ac.uk`。**ORCID 仍待填**（cover letter + 投稿系统都要，去 orcid.org 免费注册）。
-4. 🔴 **导出 LLM 推理生命周期图（Fig 1）**：`paper/figures/llm_inference_lifecycle.pdf` 现在是**红框 PLACEHOLDER 占位**。投稿前务必在 draw.io 打开 `plot/llm_inference_lifecycle.drawio` → Export as PDF（勾 Crop）→ 覆盖该文件（再导一份 .png）。中文版 symlink 同一文件，导一次即可。
+1. ~~去年毕设是否进了知网/学校机构库~~ → ✅ **已确认未入库**，cover letter 毕设段已删，正文无 self-citation 负担。
+2. ~~推荐审稿人 + 邮箱~~ → ✅ **已填 3 个干净候选**：Hao Zhang `haz094@ucsd.edu` · Xin Jin `xinjinpku@pku.edu.cn` · Rajkumar Buyya `rbuyya@unimelb.edu.au`（Bianchini 留作可选第 4）。
+3. ~~作者单位 + ORCID~~ → ✅ **University of Bristol, Faculty of Science and Engineering**，邮箱 `nu25406@bristol.ac.uk`，ORCID `0009-0004-1487-3862`（已填入中英 main.tex + cover letter）。
+4. ~~导出 4 张 drawio 图~~ → ✅ **全部已导出并提交**（Fig 1 生命周期 / Fig 2 扩散 / Fig 3 仿真器 / Fig 4 RL 架构）。
 
-### 图导出对照表（drawio → 覆盖到 paper/figures/）
+### 图导出对照表（已全部完成）
 
-| drawio 源（plot/） | 导出到 paper/figures/ | 论文编号 |
-|---|---|---|
-| `llm_inference_lifecycle.drawio` | `llm_inference_lifecycle.{pdf,png}` | Fig 1 🔴待导 |
-| `distributed_diffusion.drawio` | `distributed_diffusion.{pdf,png}` | Fig 2 |
-| `trace_integration.drawio` | `trace_integration.{pdf,png}` | Fig 3 |
-| `rl_scheduler_arch.drawio` | `rl_scheduler_arch.{pdf,png}` | Fig 4 |
+| drawio 源（plot/） | paper/figures/ | 论文编号 | 状态 |
+|---|---|---|---|
+| `llm_inference_lifecycle.drawio` | `llm_inference_lifecycle.{pdf,png}` | Fig 1 | ✅ |
+| `distributed_diffusion.drawio` | `distributed_diffusion.{pdf,png}` | Fig 2 | ✅ |
+| `trace_integration.drawio` | `trace_integration.{pdf,png}` | Fig 3 | ✅ |
+| `rl_scheduler_arch.drawio` | `rl_scheduler_arch.{pdf,png}` | Fig 4 | ✅ |
 
-Fig 5–8（Pareto/拓扑/负载/消融）是 matplotlib 直接生成，无需 drawio 导出。
-（注：旧的 distributed_transformer 训练图已删除，因与推理调度主题偏远。）
+Fig 5–8（Pareto/拓扑/负载/消融）是 matplotlib 直接生成，无需 drawio。
+（旧 distributed_transformer 训练图已删，因与推理调度主题偏远。）
+
+---
+
+## 投稿当天还要做的（非文件，Elsevier 系统内操作）
+
+- [ ] cover letter 顶部 `[Date]` 填投稿日期。
+- [ ] Elsevier 账号用**永久邮箱**注册（防 Bristol 校园邮箱评审期内停用）；论文上印 Bristol 邮箱没问题，系统通信邮箱用永久的。
+- [ ] 投稿系统里粘贴 **Highlights**（`highlights.txt` 5 条，去掉行尾字数标注）。
+- [ ] 选 **Subscription 渠道**（不勾 Gold OA）→ 零版面费。
+- [ ] 上传 `paper/main.pdf` 作为 manuscript，cover letter 贴进对应框。

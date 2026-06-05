@@ -78,12 +78,10 @@ page.
    Email: haz094@ucsd.edu
 2. **Xin Jin** — Peking University (School of Computer Science).
    LLM serving and networked-systems scheduling (DistServe).
-   Email: [VERIFY — found string was malformed; likely
-   xinjin@pku.edu.cn or xinjinpku@pku.edu.cn, confirm at
-   xinjin.github.io]
+   Email: xinjinpku@pku.edu.cn
 3. **Rajkumar Buyya** — University of Melbourne (CLOUDS Lab).
    Cloud–edge/fog scheduling and energy-aware resource management.
-   Email: [listed publicly on http://www.buyya.com]
+   Email: rbuyya@unimelb.edu.au
 4. **Ricardo Bianchini** — Microsoft Research.
    Datacenter resource management and energy efficiency (Splitwise).
    Email: [on his Microsoft Research profile page]
@@ -95,4 +93,4 @@ Sincerely,
 
 Zhuolun Li (corresponding author)
 Faculty of Science and Engineering, University of Bristol, Bristol, UK
-Email: nu25406@bristol.ac.uk · ORCID: [fill in]
+Email: nu25406@bristol.ac.uk · ORCID: https://orcid.org/0009-0004-1487-3862
