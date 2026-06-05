@@ -1,0 +1,132 @@
+<mxfile host="app.diagrams.net" modified="2026-06-05T13:00:00.000Z" agent="Mozilla/5.0" version="22.1.0" type="device">
+  <diagram name="LLM Inference Lifecycle" id="fig-lifecycle">
+    <mxGraphModel dx="1422" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1160" pageHeight="470" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ====== Title ====== -->
+        <mxCell id="title" value="LLM Inference Request Lifecycle: Prefill → Decode, bound to the KV Cache (background)"
+                style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=17;fontStyle=1;"
+                vertex="1" parent="1">
+          <mxGeometry x="90" y="15" width="980" height="26" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Request ====== -->
+        <mxCell id="req" value="&lt;b&gt;Request&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px;color:#444;'&gt;prompt: L&lt;sub&gt;p&lt;/sub&gt; tokens&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="50" y="120" width="130" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Prefill ====== -->
+        <mxCell id="prefill" value="&lt;b&gt;Prefill&lt;/b&gt; (once)&lt;br&gt;&lt;span style='font-size:10px;color:#444;'&gt;one parallel forward pass&lt;br&gt;over all L&lt;sub&gt;p&lt;/sub&gt; tokens&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="230" y="115" width="200" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="prefill_note" value="&lt;i&gt;compute-bound&lt;br&gt;→ first token (TTFT)&lt;/i&gt;"
+                style="text;html=1;align=center;verticalAlign=top;fontSize=10;fontColor=#b85450;"
+                vertex="1" parent="1">
+          <mxGeometry x="230" y="198" width="200" height="32" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Decode steps ====== -->
+        <mxCell id="dec1" value="&lt;b&gt;Decode&lt;br&gt;step 1&lt;/b&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="490" y="125" width="80" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="dec2" value="&lt;b&gt;Decode&lt;br&gt;step 2&lt;/b&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="600" y="125" width="80" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="decdots" value="· · ·"
+                style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#6c8ebf;"
+                vertex="1" parent="1">
+          <mxGeometry x="700" y="125" width="50" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="decN" value="&lt;b&gt;Decode&lt;br&gt;step L&lt;sub&gt;o&lt;/sub&gt;&lt;/b&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="770" y="125" width="80" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="decode_note" value="&lt;i&gt;each step: read KV + emit 1 token  ·  memory-bandwidth-bound (~20 ms/token floor)  ·  the L&lt;sub&gt;o&lt;/sub&gt; sequential steps dominate latency (TPOT)&lt;/i&gt;"
+                style="text;html=1;align=center;verticalAlign=top;whiteSpace=wrap;fontSize=10;fontColor=#3a5a8a;"
+                vertex="1" parent="1">
+          <mxGeometry x="470" y="190" width="400" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Output ====== -->
+        <mxCell id="output" value="&lt;b&gt;Output&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:10px;color:#444;'&gt;L&lt;sub&gt;o&lt;/sub&gt; tokens&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="910" y="120" width="120" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ====== KV Cache store ====== -->
+        <mxCell id="kv" value="&lt;b&gt;KV Cache&lt;/b&gt; — pinned to the GPU that ran Prefill&lt;br&gt;&lt;span style='font-size:10px;color:#444;'&gt;built during Prefill, extended by one entry per Decode step (≈0.5–2.5 MB / token / layer)&lt;/span&gt;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="230" y="300" width="620" height="64" as="geometry" />
+        </mxCell>
+
+        <mxCell id="kv_mig" value="&lt;i&gt;Decode on a different GPU ⇒&lt;br&gt;migrate KV (100s of MB) or re-run Prefill&lt;/i&gt;"
+                style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=10;fontColor=#b8860b;"
+                vertex="1" parent="1">
+          <mxGeometry x="870" y="306" width="270" height="52" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Lifecycle arrows ====== -->
+        <mxCell id="a_req_pre" style="endArrow=classic;html=1;strokeColor=#333333;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;"
+                edge="1" parent="1" source="req" target="prefill">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a_pre_dec1" value="token 1"
+                style="endArrow=classic;html=1;strokeColor=#333333;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;"
+                edge="1" parent="1" source="prefill" target="dec1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a_d1_d2" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;"
+                edge="1" parent="1" source="dec1" target="dec2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a_d2_dots" style="endArrow=none;html=1;strokeColor=#6c8ebf;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;"
+                edge="1" parent="1" source="dec2" target="decdots">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a_dots_dN" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;"
+                edge="1" parent="1" source="decdots" target="decN">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a_dN_out" style="endArrow=classic;html=1;strokeColor=#333333;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;"
+                edge="1" parent="1" source="decN" target="output">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ====== KV interactions ====== -->
+        <mxCell id="a_pre_kv" value="build"
+                style="endArrow=classic;html=1;strokeColor=#d6b656;strokeWidth=2;dashed=1;fontSize=10;fontColor=#b8860b;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.1;entryY=0;"
+                edge="1" parent="1" source="prefill" target="kv">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a_dec_kv" value="read + extend"
+                style="endArrow=classic;startArrow=classic;html=1;strokeColor=#d6b656;strokeWidth=2;dashed=1;fontSize=10;fontColor=#b8860b;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.6;entryY=0;"
+                edge="1" parent="1" source="dec2" target="kv">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ====== Batching note (bottom) ====== -->
+        <mxCell id="batch_note" value="&lt;b&gt;Continuous batching:&lt;/b&gt; same-model requests share each forward pass (5–8× throughput) — only if the scheduler co-locates them on one server."
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ee;strokeColor=#82b366;fontSize=11;verticalAlign=middle;align=center;"
+                vertex="1" parent="1">
+          <mxGeometry x="230" y="400" width="620" height="40" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -9,12 +9,12 @@
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.95\textwidth]{distributed_transformer.pdf}
-  \caption{背景知识：结合数据并行、张量并行与流水线并行（DP\,$\times$\,TP\,$\times$\,PP）以及 ZeRO 风格分片优化器状态的分布式 Transformer 训练。本文聚焦于由此训练得到的模型的\emph{推理调度}，该过程继承了训练阶段并行策略所施加的模型权重与 KV cache 本地性约束。}
-  \label{fig:transformer}
+  \includegraphics[width=0.92\textwidth]{llm_inference_lifecycle.pdf}
+  \caption{一次 LLM 推理请求的两阶段生命周期。\emph{Prefill} 对整段 prompt 执行一次（计算受限），输出首个 token 并建立 KV cache；\emph{Decode} 随后执行 $L_o$ 个串行的、显存带宽受限的步骤，每步读取并追加 KV cache。KV cache 绑定在运行 Prefill 的那台 GPU 上，因此把 Decode 派到别处会强制 KV 迁移或重跑 Prefill——这正是跨服务器调度器必须权衡的核心本地性张力。}
+  \label{fig:lifecycle}
 \end{figure*}
 
-现代 LLM 是 decoder-only Transformer~\cite{vaswani2017attention,brown2020gpt3}，按 token 顺序逐个输出。推理分为两个硬件特征截然不同的阶段。\textbf{Prefill} 每请求执行一次：在一次前向传播中并行处理 $L_p$ 个 prompt token，产生首个输出 token 及每个 Transformer 层对应的\emph{键值缓存}（KV cache）；计算复杂度为 $O(L_p \cdot d)$，对非平凡长度的 prompt 可使 GPU 算力饱和。\textbf{Decode} 随后迭代执行，每个输出 token 一步（A100 上约 $10$--$80$~ms），复用已存 KV cache 并将其增长一行；对长生成场景，$L_o$ 步 decode 主导端到端延迟。
+现代 LLM 是 decoder-only Transformer~\cite{vaswani2017attention,brown2020gpt3}，按 token 顺序逐个输出。推理分为两个硬件特征截然不同的阶段（图~\ref{fig:lifecycle}）。\textbf{Prefill} 每请求执行一次：在一次前向传播中并行处理 $L_p$ 个 prompt token，产生首个输出 token 及每个 Transformer 层对应的\emph{键值缓存}（KV cache）；计算复杂度为 $O(L_p \cdot d)$，对非平凡长度的 prompt 可使 GPU 算力饱和。\textbf{Decode} 随后迭代执行，每个输出 token 一步（A100 上约 $10$--$80$~ms），复用已存 KV cache 并将其增长一行；对长生成场景，$L_o$ 步 decode 主导端到端延迟。
 
 KV cache 体积大（LLaMA 类模型约 $0.5$--$2.5$ MB 每 token 每层；例如 1000-token LLaMA-13B 会话约 800~MB，常大于激活内存）且 \textbf{与运行 Prefill 的 GPU 绑定}：在另一台服务器上 decode 要么通过网络拷贝数百 MB，要么重做 prefill。
 
