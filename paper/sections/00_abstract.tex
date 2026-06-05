@@ -7,25 +7,20 @@ The rapid growth of large language model (LLM) inference workloads
 imposes serving-cost and energy pressures that single-axis
 throughput-oriented schedulers cannot address. We study
 \emph{cloud-edge collaborative LLM inference scheduling} under five
-AIGC-specific physical constraints: model-weight residency
-(7--70~GB), KV-cache memory growth, continuous batching, the
+AIGC-specific physical constraints: model-weight residency,
+KV-cache memory growth, continuous batching, the
 memory-bandwidth floor of decode, and the two-phase
 prefill/decode request lifecycle. We design an AIGC-aware
 proximal policy optimization (PPO) scheduler that exposes these
 physics to the policy through state features and reward shaping,
 and we compare it against eight strong baselines spanning
-heuristic (HEFT, GA, PSO), load-balancing (LeastLoaded,
-ShortestQueue), and learned (A3C-R2N2, GNN) approaches.
-Across 30 configurations sweeping topology
-(edge $\in \{3,5,7\}$), load ($\lambda \in \{0.5,1,2,4,8\}$
-req/s), and workload composition (uniform versus large-heavy
-model mix) with $N{=}30$ runs each, our scheduler achieves
-strict Pareto dominance in the canonical operating regime
-($\lambda{=}2$ req/s, uniform mix, edge${=}5$): $+28\%$ \slo{}
-attainment and $-7\%$ energy per token relative to the strongest
-baseline, with significance at $p<0.05$ on \slo{} against all four
-strong comparators and on energy efficiency against three of four
-(PSO $p=0.11$, others $p<0.05$). A 12-component ablation,
+heuristic, load-balancing, and learned approaches.
+Across 30 configurations sweeping topology, load, and workload
+composition ($N{=}30$ runs each), our scheduler achieves
+strict Pareto dominance in the canonical operating regime: a
+28\% gain in \slo{} attainment (statistically significant,
+$p<0.05$) together with 7\% lower energy per token relative to
+the strongest baseline. A 12-component ablation,
 however, reveals that the joint gain is a holistic system
 contribution: only continuous-batching simulation and adequate
 pretraining are individually significant; every AIGC reward and
