@@ -73,18 +73,20 @@ advising relationship, or recent co-authorship). Pick any three;
 emails should be taken from each scholar's official institutional
 page.
 
-1. **Hao Zhang** — University of California, San Diego (CSE /
-   HDSI). Expertise: LLM serving systems and inference engines
-   (vLLM, DistServe). [email: verify at ucsd.edu]
-2. **Rajkumar Buyya** — University of Melbourne (CLOUDS Lab).
-   Expertise: cloud–edge/fog scheduling and energy-aware resource
-   management. [email: verify at unimelb.edu.au]
-3. **Xin Jin** — Peking University (School of Computer Science).
-   Expertise: LLM serving and networked-systems scheduling
-   (DistServe). [email: verify at pku.edu.cn]
-4. **Ricardo Bianchini** — Microsoft / Microsoft Research.
-   Expertise: datacenter resource management and energy
-   efficiency (Splitwise). [email: verify at microsoft.com]
+1. **Hao Zhang** — University of California, San Diego (CSE / HDSI).
+   LLM serving systems and inference engines (vLLM, DistServe).
+   Email: haz094@ucsd.edu
+2. **Xin Jin** — Peking University (School of Computer Science).
+   LLM serving and networked-systems scheduling (DistServe).
+   Email: [VERIFY — found string was malformed; likely
+   xinjin@pku.edu.cn or xinjinpku@pku.edu.cn, confirm at
+   xinjin.github.io]
+3. **Rajkumar Buyya** — University of Melbourne (CLOUDS Lab).
+   Cloud–edge/fog scheduling and energy-aware resource management.
+   Email: [listed publicly on http://www.buyya.com]
+4. **Ricardo Bianchini** — Microsoft Research.
+   Datacenter resource management and energy efficiency (Splitwise).
+   Email: [on his Microsoft Research profile page]
 
 We thank you for considering our submission and look forward to the
 reviewers' feedback.
@@ -92,5 +94,5 @@ reviewers' feedback.
 Sincerely,
 
 Zhuolun Li (corresponding author)
-[Affiliation — fill in]
-Email: Li_zhuolun@126.com · ORCID: [fill in]
+Faculty of Science and Engineering, University of Bristol, Bristol, UK
+Email: nu25406@bristol.ac.uk · ORCID: [fill in]

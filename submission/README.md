@@ -36,7 +36,7 @@
 
 1. ~~去年毕设是否进了知网/学校机构库~~ → **已确认未入库**，cover letter 毕设段已删除，正文无需提毕设、无 self-citation 负担。
 2. ~~推荐审稿人 3 位真名~~ → **cover letter 已填 4 位候选**（Hao Zhang / Rajkumar Buyya / Xin Jin / Ricardo Bianchini），投稿时挑 3 位。⚠️ **邮箱需你逐个去官方主页核实后填入**（勿用猜测地址）。
-3. **作者单位 + ORCID**：`paper/main.tex` 作者名已填（李卓伦/Zhuolun Li），但**单位仍是"匿名占位"**，cover letter 里 `[Affiliation]` 和 `[ORCID]` 也待填。FGCS 单盲审需作者实名 + 真实单位。
+3. ~~作者单位~~ → **已填 University of Bristol, Faculty of Science and Engineering**（中英两版 main.tex + cover letter 落款），邮箱 `nu25406@bristol.ac.uk`。**ORCID 仍待填**（cover letter + 投稿系统都要，去 orcid.org 免费注册）。
 4. 🔴 **导出 LLM 推理生命周期图（Fig 1）**：`paper/figures/llm_inference_lifecycle.pdf` 现在是**红框 PLACEHOLDER 占位**。投稿前务必在 draw.io 打开 `plot/llm_inference_lifecycle.drawio` → Export as PDF（勾 Crop）→ 覆盖该文件（再导一份 .png）。中文版 symlink 同一文件，导一次即可。
 
 ### 图导出对照表（drawio → 覆盖到 paper/figures/）
