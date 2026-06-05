@@ -55,6 +55,27 @@ two strands compose---Llumnix-style migration could refine
 our placements at runtime; our scheduler could populate
 prefill/decode pools in a Splitwise-style deployment.
 
+The closest contemporary effort is
+SLICE~\cite{chow2025slice}, which schedules LLM inference
+under differentiated SLO requirements using a
+utility-maximizing request scheduler and dynamic
+generation-rate control. We differ along three axes.
+\emph{(i)~Topology:} SLICE targets \textbf{edge-only}
+devices (robots, vehicles, IoT), whereas we schedule across a
+\textbf{heterogeneous cloud--edge} pool where the placement
+decision---which tier serves each request---is itself the
+lever. \emph{(ii)~Objective:} SLICE optimizes \slo{}
+attainment as a single axis; we treat \slo{} \emph{and}
+energy per token as a \textbf{multi-objective Pareto}
+problem, and our central finding (energy advantage is more
+configuration-stable than \slo) is only visible on the second
+axis. \emph{(iii)~Method:} SLICE uses a hand-designed utility
+heuristic with rate control; we learn the policy with
+\textbf{AIGC-aware RL} and, through 12-component ablation,
+\emph{quantify} how much of the gain is attributable to
+learning versus simulator physics---a methodological
+contribution orthogonal to the scheduling result itself.
+
 \textbf{Simulation platforms.}
 CloudSim~\cite{calheiros2011cloudsim},
 iFogSim~\cite{gupta2017ifogsim}, and

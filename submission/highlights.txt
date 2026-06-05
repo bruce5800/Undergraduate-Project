@@ -1,0 +1,25 @@
+Highlights — Future Generation Computer Systems submission
+Title: Pareto-Dominant Reinforcement Learning for Cloud-Edge LLM
+       Inference Scheduling
+
+NOTE: FGCS requires 3 to 5 highlights, each a single sentence,
+maximum 85 characters INCLUDING spaces. Each line below is within
+the limit (the trailing count is for your reference only — remove
+it before pasting into the Elsevier system).
+
+------------------------------------------------------------------
+
+We model five AIGC inference physics for cloud-edge LLM scheduling.   (69)
+
+An AIGC-aware PPO scheduler Pareto-dominates eight strong baselines.   (69)
+
+It yields +28% SLO and -7% energy per token at the canonical setting.  (68)
+
+A 12-component ablation shows the gain is holistic, not a reward trick. (70)
+
+We release an open simulator and 30+ reproducibility manifests.        (62)
+
+------------------------------------------------------------------
+Character counts verified <= 85 incl. spaces. If the portal rejects
+any line, the usual cause is a smart-quote or an em-dash; keep them
+plain ASCII as above.

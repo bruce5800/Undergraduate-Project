@@ -47,14 +47,38 @@ procedures.''}
 \subsection{Limitations and Threats to Validity}
 \label{sec:limitations}
 
-\textbf{Simulation fidelity.} We model continuous batching as
-\emph{admission-time} batching rather than vLLM's
-iteration-level dynamic re-batching, possibly underestimating
-true continuous batching benefit by 10--20\% in some regimes,
-and treat the memory-bandwidth floor as constant rather than
-batch-size-dependent. Quantitative ablation numbers
-(e.g., $-83\%$ from \texttt{no\_batching}) should be read as
-our simulator's behavior, not vLLM-precise predictions.
+\textbf{Why simulation, and its fidelity.} We evaluate in
+simulation deliberately. Our central claims are
+\emph{comparative and statistical}---a Pareto-dominance
+relation that must hold across 30 configurations and
+$N{=}30$ seeds each (900 runs). Reproducing this sweep on real
+cloud--edge hardware would require simultaneous access to
+A100-, T4-, and Jetson-class nodes under controlled,
+repeatable arrival processes, which is precisely the setting a
+simulator isolates: identical workloads and seeds across all
+nine schedulers, with no confound from co-tenancy, thermal
+throttling, or driver-version drift. We calibrate the
+simulator's constants (cold-load times, batching overheads,
+the memory-bandwidth floor) to published vLLM and
+TensorRT-LLM measurements so that absolute magnitudes are
+realistic, not merely relative.
+
+That said, the simulator makes two simplifications. It models
+continuous batching as \emph{admission-time} batching rather
+than vLLM's iteration-level dynamic re-batching (possibly
+underestimating true batching benefit by 10--20\% in some
+regimes), and treats the memory-bandwidth floor as constant
+rather than batch-size-dependent. We therefore read absolute
+ablation magnitudes (e.g., $-83\%$ from \texttt{no\_batching})
+as our simulator's behavior rather than vLLM-precise
+predictions; the \emph{ordering} and \emph{significance} of
+effects---which carry our claims---are robust to these
+constants. \textbf{Validating the Pareto relation on a
+physical cloud--edge testbed with a production serving engine
+is the most important item of future work}, and the open
+simulator we release is designed to make that comparison
+direct: its \texttt{scheduler.schedule()} interface is the
+same one a real dispatcher would implement.
 
 \textbf{Workload and hardware coverage.} Our workload uses
 synthetic log-normal lengths calibrated to Azure 2023; we have

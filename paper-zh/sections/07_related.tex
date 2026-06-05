@@ -12,4 +12,6 @@
 
 \textbf{AIGC 专用调度。}Splitwise、DistServe、Llumnix~\cite{patel2024splitwise,zhong2024distserve,sun2024llumnix}（\S\ref{sec:bg-cloudedge}）设计\emph{部署拓扑}（阶段拆分、解耦池）与\emph{集群内反应式策略}（中途迁移），将初始请求分派当作正交问题。\textbf{本文聚焦初始分派}：两类工作可组合---Llumnix 风格迁移可在运行时精化我们的初始分派；本文调度器可填充 Splitwise 风格部署中的 prefill/decode 池。
 
+与本文时间上最接近的工作是 SLICE~\cite{chow2025slice}：它在差异化 SLO 需求下，用效用最大化的请求调度器加动态生成速率控制来调度 LLM 推理。本文在三个维度上与之不同。\emph{（i）拓扑}：SLICE 面向\textbf{纯边缘}设备（机器人、车辆、IoT），本文则在\textbf{异构云--边}池上调度，"请求由哪个层级服务"这一分派决策本身即是核心杠杆。\emph{（ii）目标}：SLICE 以 SLO 达成率为单一目标，本文将 \slo{}\emph{与}每 token 能耗视作\textbf{多目标 Pareto} 问题——而我们的核心发现（能效优势比 \slo{} 更"配置稳定"）只有在第二个轴上才可见。\emph{（iii）方法}：SLICE 用手工设计的效用启发式 + 速率控制，本文用\textbf{AIGC 感知 RL} 学习策略，并通过 12 组件消融\emph{量化}增益中有多少来自学习、多少来自仿真器物理---这是独立于调度结果本身的方法论贡献。
+
 \textbf{仿真平台。}CloudSim~\cite{calheiros2011cloudsim}、iFogSim~\cite{gupta2017ifogsim}、WorkflowSim~\cite{chen2012workflowsim} 针对通用云--雾或 DAG 负载，未建模 AIGC 物理；近期 LLM 服务仿真多关注单机内批处理动力学，而非跨服务器调度。据我们所知，本文仿真器（\S\ref{sec:simulator}）是首个开源平台，同时具备：（1）建模全部五项 AIGC 物理；（2）聚焦跨服务器调度；（3）原生支持 \slo{}+能耗 多目标评估。我们随 \S\ref{sec:eval} 的 30+ 配置一并发布复现 manifest。
