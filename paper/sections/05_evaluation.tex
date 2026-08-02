@@ -57,6 +57,57 @@ set:
   explicit AIGC state features and reward shaping.
 \end{itemize}
 
+All nine schedulers are implemented natively in Python against
+the simulator's uniform \texttt{scheduler.schedule()}
+interface; no external scheduler library is reused. HEFT
+follows the original upward-rank
+formulation~\cite{topcuoglu2002heft}; A3C-R2N2 reimplements
+the GRU + residual-skip network of~\cite{tuli2022a3cr2n}; the
+GNN variant follows Decima-style graph
+encoding~\cite{mao2019decima}. Table~\ref{tab:hyperparams}
+lists each scheduler's hyperparameters and search/training
+budget; all implementations ship with our open-source release.
+
+\begin{table}[t]
+  \centering
+  \caption{Scheduler implementations and hyperparameters.
+    RR/LL/SQ = RoundRobin, LeastLoaded, ShortestQueue.}
+  \label{tab:hyperparams}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}l@{\hspace{6pt}}p{0.64\columnwidth}@{}}
+    \toprule
+    Scheduler & Configuration \\
+    \midrule
+    RR / LL / SQ & parameter-free greedy rules \\
+    HEFT & upward rank + earliest finish time; parameter-free \\
+    GA & population 30, 50 generations per scheduling window;
+      crossover 0.8, mutation 0.1, elitism 0.1 \\
+    PSO & 30 particles, 30 iterations per window; inertia
+      $w{=}0.7$, $c_1{=}c_2{=}1.5$ \\
+    A3C-R2N2 & GRU cell + residual skip (hidden 128); Adam
+      $3{\times}10^{-4}$, $\gamma{=}0.95$, entropy 0.05, value
+      coef.\ 0.5; update every 32 transitions (single epoch,
+      no clipping, per~\cite{tuli2022a3cr2n}) \\
+    GNN & 1-hop attention message passing on the task--server
+      bipartite graph (hidden 64); same PPO recipe and budget
+      as ours \\
+    RL (ours) & MLP $256{\to}128{\to}64$; PPO clip
+      $\epsilon{=}0.2$, GAE $\gamma{=}0.95$,
+      $\lambda{=}0.90$; Adam $3{\times}10^{-4}$; entropy
+      $0.05{\to}0.01$ after pretrain; update every 32
+      transitions $\times$ 4 epochs \\
+    \addlinespace
+    \multicolumn{2}{@{}p{0.97\columnwidth}@{}}{\emph{Training
+      budget (all three learned schedulers):} 20 pretraining
+      episodes on the target configuration
+      ($\approx$10--15~s wall-clock), initialized by 30
+      uniform-random warm-up dispatches; online updates
+      continue during evaluation.} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 \textbf{Metrics.} Following standard LLM serving benchmarks:
 \slo{} attainment (fraction meeting TTFT $\le$ 2.0~s and TPOT
 $\le$ 100~ms/token); TTFT and TPOT percentiles (P50/P95/P99);
@@ -83,12 +134,15 @@ requests). Results are averaged over 30 runs.
 \textbf{Headline finding.} Our AIGC-aware RL scheduler
 simultaneously achieves the highest \slo{} attainment
 \textbf{and} the lowest energy per token, \textbf{Pareto-dominating
-all eight baselines} in the (\slo, energy efficiency) plane.
+all eight baselines} in the (\slo, energy efficiency) plane
+(Table~\ref{tab:main}, Fig.~\ref{fig:pareto}).
 
 \begin{table}[t]
   \centering
   \caption{Main comparison at edge${=}5$, $\lambda{=}2$ req/s,
-    $N{=}30$. Bold = column-best.}
+    $N{=}30$. Mksp.\ = makespan (s); E = total energy (kJ);
+    \etok{} = energy per token (J); TTFT P95 in seconds.
+    Bold = column-best.}
   \label{tab:main}
   \small
   \setlength{\tabcolsep}{4pt}
@@ -103,9 +157,9 @@ all eight baselines} in the (\slo, energy efficiency) plane.
     HEFT          & 126.7 & 0.169 & 25.9 & 2.83 & 35.7 \\
     GA            & 132.4 & 0.225 & 26.9 & 2.94 & 30.5 \\
     PSO           & 129.6 & 0.235 & 25.6 & 2.81 & 41.0 \\
-    A3C-R2N2      & 120.6 & 0.214 & 26.7 & 2.93 & 28.8 \\
+    A3C-R2N2      & \textbf{120.6} & 0.214 & 26.7 & 2.93 & 28.8 \\
     GNN           & 125.5 & 0.210 & 26.7 & 2.93 & 32.2 \\
-    \textbf{RL (ours)} & \textbf{122.2} & \textbf{0.302}
+    \textbf{RL (ours)} & 122.2 & \textbf{0.302}
                        & \textbf{23.7} & \textbf{2.61}
                        & \textbf{25.2} \\
     \bottomrule
@@ -113,7 +167,12 @@ all eight baselines} in the (\slo, energy efficiency) plane.
 \end{table}
 
 Numbers in bold mark the best column-wise. The proposed RL
-scheduler is best on every metric.
+scheduler is best on every metric except makespan, where
+A3C-R2N2 completes marginally earlier (120.6~s vs.\ 122.2~s, a
+1.3\% gap). Makespan is not among our optimization objectives
+(\S\ref{sec:sched-problem}), and the gap does not affect the
+Pareto relation on the (\slo, \etok) plane, where our scheduler
+dominates on both axes.
 
 \begin{figure}[t]
   \centering
@@ -128,9 +187,10 @@ scheduler is best on every metric.
   \label{fig:pareto}
 \end{figure}
 
-\textbf{Statistical significance.} Mann-Whitney U tests
+\textbf{Statistical significance.} Table~\ref{tab:significance}
+reports Mann-Whitney U tests
 comparing our RL scheduler against each of the four strongest
-baselines:
+baselines.
 
 \begin{table}[t]
   \centering
@@ -209,6 +269,8 @@ requires more samples to specialize than the pretrain budget
 
 We vary the number of edge servers from 3 to 7 (always with
 one cloud) at fixed $\lambda{=}2$ req/s and uniform model mix.
+Table~\ref{tab:topology} reports \slo{} and \etok{} for the
+four strongest baselines and our scheduler.
 
 \begin{table}[t]
   \centering
@@ -282,6 +344,8 @@ We sweep the Poisson arrival rate
 $\lambda \in \{0.5, 1, 2, 4, 8\}$ req/s at fixed edge${=}5$ to
 characterize how scheduler behavior changes from
 under-utilization to over-saturation.
+Tables~\ref{tab:slo-vs-lambda} and~\ref{tab:e-vs-lambda}
+report \slo{} attainment and energy per token, respectively.
 
 \begin{table}[t]
   \centering
@@ -380,6 +444,7 @@ characterizes most production inference deployments.}
 We test two model mixes at edge${=}5$, $\lambda{=}2$: \textbf{uniform}
 (1/3 each of LLaMA-7B/13B/70B) and \textbf{large-heavy} (70\%
 LLaMA-70B-INT8, biased toward memory-bound requests).
+Table~\ref{tab:workload} reports the results.
 
 \begin{table}[t]
   \centering
@@ -426,7 +491,8 @@ To isolate which of our RL scheduler's components contribute
 to its Pareto dominance, we systematically ablate 12 components
 by disabling one at a time, holding all else equal. All
 ablations use edge${=}5$, $\lambda{=}2$ req/s, uniform mix,
-$N{=}30$ runs.
+$N{=}30$ runs. Table~\ref{tab:ablation} reports all twelve
+configurations.
 
 \textbf{Ablation taxonomy.} We group ablations into four
 categories: \emph{Physical layer} (\texttt{no\_batching});
@@ -467,7 +533,7 @@ categories: \emph{Physical layer} (\texttt{no\_batching});
       & \textbf{$<$0.001}$^{***}$ \\
     PPO & $-$ Action masking
       & 0.274 & $-$9.3\% & 2.66 & $+$2.1\% & 0.39 \\
-    PPO & $-$ GAE (use MC return)
+    PPO & $-$ GAE (use Monte-Carlo return)
       & 0.292 & $-$3.3\% & 2.61 & $-$0.1\% & 0.65 \\
     PPO & $-$ Entropy regularization
       & 0.305 & $+$0.9\% & 2.54 & $-$2.8\% & 0.92 \\

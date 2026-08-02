@@ -88,14 +88,17 @@ this paper.
 
 Production LLM services increasingly span heterogeneous compute
 pools: one or more cloud servers with high-end accelerators
-(A100/H100, $\ge$80~GB VRAM) capable of hosting LLaMA-70B-INT8
+(A100/H100, $\ge$80~GB of GPU memory, VRAM) capable of hosting
+LLaMA-70B-INT8
 ($\sim$70~GB) at high throughput; a pool of edge servers
 (data-center A100 down through workstation T4 and embedded
 Jetson Orin) with 16--64~GB VRAM, 10--50 TFLOPS, and
-30--250~W TDP that fit smaller LLaMA-7B/13B variants; and a
+30--250~W thermal design power (TDP) that fit smaller
+LLaMA-7B/13B variants; and a
 network fabric with 30--65~ms cloud--edge and 8--23~ms
 edge--edge round-trip latency. The paradigm is driven by
-\textbf{latency} (edge proximity reduces TTFT),
+\textbf{latency} (edge proximity reduces time-to-first-token,
+TTFT),
 \textbf{cost} (edge GPUs are 1--10$\times$ cheaper per FLOP and
 2--10$\times$ lower power), and \textbf{data sovereignty}.
 Splitwise~\cite{patel2024splitwise} and
@@ -113,7 +116,7 @@ request go?
 Cloud-edge scheduling has historically used three families
 of algorithms, none of which natively encodes AIGC physics.
 \textbf{Heuristic schedulers}---HEFT~\cite{topcuoglu2002heft}
-(upward-rank priorities + EFT minimization),
+(upward-rank priorities + earliest-finish-time minimization),
 Round-Robin/Least-Loaded/Shortest-Queue---treat tasks as
 independent black boxes; they cannot, for example, prefer a
 server with the requested model already loaded.
@@ -126,8 +129,9 @@ extra terms---which is precisely what we automate.
 Decima~\cite{mao2019decima} (GNN+REINFORCE for Spark DAGs),
 RLScheduler~\cite{zhang2020rlscheduler} (HPC batch jobs),
 and most relevantly
-A3C-R2N2~\cite{tuli2022a3cr2n} (actor-critic with a
-GRU+residual encoder for \emph{generic} edge-cloud tasks,
+A3C-R2N2~\cite{tuli2022a3cr2n} (asynchronous advantage
+actor-critic with a gated-recurrent-unit (GRU) + residual
+encoder for \emph{generic} edge-cloud tasks,
 predating the LLM era). Our scheduler builds on this lineage
 but introduces AIGC-aware state/reward and contrasts directly
 with an A3C-R2N2 baseline (\S\ref{sec:eval}) to isolate the

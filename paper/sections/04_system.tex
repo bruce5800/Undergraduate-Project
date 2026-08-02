@@ -170,7 +170,8 @@ when an edge alternative exists) discourages an
 ``always-cloud'' attractor we observed in early experiments
 (see \S\ref{sec:implications}).
 
-\textbf{Architecture and training.} A 3-layer MLP encoder
+\textbf{Architecture and training.} A 3-layer
+multi-layer-perceptron (MLP) encoder
 ($\text{state} \to 256 \to 128 \to 64$, LayerNorm + ReLU)
 feeds an Actor (Linear $\to$ softmax-with-mask) and a Critic
 (Linear $\to$ ReLU $\to$ Linear). We train with

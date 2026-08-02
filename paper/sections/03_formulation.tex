@@ -10,8 +10,74 @@ topology and workload. \S\ref{sec:physics-constraints} expresses
 the five AIGC physics as constraints and cost functions on
 scheduling decisions. \S\ref{sec:sched-problem} states our
 scheduling problem as a multi-objective optimization.
-\S\ref{sec:mdp} casts it as a Markov Decision Process for
-reinforcement-learning treatment.
+\S\ref{sec:mdp} casts it as a Markov decision process (MDP) for
+reinforcement-learning treatment. Table~\ref{tab:notation}
+summarizes the notation used throughout this section.
+
+\begin{table}[t]
+  \centering
+  \caption{Notation used in \S\ref{sec:formulation}.}
+  \label{tab:notation}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}l@{\hspace{8pt}}p{0.60\columnwidth}@{}}
+    \toprule
+    Symbol & Meaning \\
+    \midrule
+    \multicolumn{2}{@{}l}{\emph{Topology and servers}} \\
+    $\mathcal{S} = \{s_0, \ldots, s_N\}$
+      & server pool: cloud $s_0$, edge $s_1, \ldots, s_N$ \\
+    $C_s$, $V_s$, $B_s$
+      & compute (TFLOPS), VRAM (GB), bandwidth (Mbps) of $s$ \\
+    $P^{\text{idle}}_s$, $P^{\max}_s$
+      & idle and peak power of $s$ (W) \\
+    $u_s(t)$, $P_s(t)$
+      & utilization and instantaneous power of $s$ \\
+    $\tau(s, s', x)$
+      & transfer time of $x$~GB from $s$ to $s'$ \\
+    \addlinespace
+    \multicolumn{2}{@{}l}{\emph{Model catalog}} \\
+    $\mathcal{M} = \{m_1, \ldots, m_K\}$
+      & catalog of LLM variants \\
+    $W_m$, $C^{\text{cold}}_m$
+      & weight footprint (GB) and cold-load time (s) of $m$ \\
+    $\kappa_m$, $\phi_m$
+      & per-token KV size (MB) and decode floor (s/token) \\
+    $B^{\max}_m$
+      & maximum batch size of $m$ \\
+    $L_s(t)$
+      & set of models loaded on $s$ at time $t$ \\
+    \addlinespace
+    \multicolumn{2}{@{}l}{\emph{Workload}} \\
+    $\mathcal{R}$, $\lambda$
+      & request stream and Poisson arrival rate (req/s) \\
+    $r_i = (m_i, L^p_i, L^o_i, a_i)$
+      & target model, prompt/output length, arrival time \\
+    $t^{\text{pre}}_i$, $t^{\text{dec}}_i$
+      & prefill and decode task of request $r_i$ \\
+    $w_t$, $n_t$
+      & workload (TFLOPS) and token count of task $t$ \\
+    \addlinespace
+    \multicolumn{2}{@{}l}{\emph{Execution and objectives}} \\
+    $\delta^{\text{cold}}$, $\delta^{\text{kv}}$
+      & cold-load and KV-migration delay \\
+    $b_{s,m,k}(t)$, $\beta_k$
+      & batch occupancy and phase-$k$ batching overhead \\
+    $T^{\text{solo}}$, $T^{\text{exec}}_{\text{eff}}$
+      & solo and batched effective execution time \\
+    $e^{\text{pre}}_i$; $s^{\text{dec}}_i$, $e^{\text{dec}}_i$
+      & prefill completion; decode start and completion \\
+    $\text{TTFT}_i$, $\text{TPOT}_i$
+      & time-to-first-token, time-per-output-token \\
+    $T^*_{\text{TTFT}}$, $T^*_{\text{TPOT}}$
+      & \slo{} thresholds on TTFT and TPOT \\
+    $\text{SLO}(\pi)$, $E_{\text{tok}}(\pi)$
+      & \slo{} attainment and energy per token under $\pi$ \\
+    $\pi$; $\mathbf{s}_t$, $a_t$, $r_t$
+      & scheduling policy; MDP state, action, reward \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \subsection{System Model}
 \label{sec:sys-model}
@@ -37,7 +103,14 @@ $\mathcal{R} = \{r_1, r_2, \ldots\}$ arrives over time according
 to a Poisson process at rate $\lambda$. Each request
 $r_i = (m_i, L^p_i, L^o_i, a_i)$ has a target model
 $m_i \in \mathcal{M}$, prompt length $L^p_i$, expected output
-length $L^o_i$, and arrival time $a_i$.
+length $L^o_i$, and arrival time $a_i$. The target model is
+\emph{part of the request}, mirroring production serving
+interfaces in which each API call names its model endpoint
+(e.g., a 7B model for autocompletion, a 70B model for complex
+reasoning); model selection is made by the client or an
+upstream router before the request reaches our scheduler.
+The scheduler decides \emph{where} each request runs, never
+\emph{which} model serves it.
 
 \textbf{Task decomposition.} Each request $r_i$ decomposes into
 two tasks $(t^{\text{pre}}_i, t^{\text{dec}}_i)$ with a strict
@@ -88,7 +161,9 @@ execution time
       \bigl(1 + b_{s,m,k}(t) \cdot \beta_k\bigr),
 \end{equation}
 where $\beta_{\text{pre}} = 0.30$ and
-$\beta_{\text{dec}} = 0.05$ are phase-specific overhead factors.
+$\beta_{\text{dec}} = 0.05$ are phase-specific overhead
+factors, calibrated to vLLM measurements
+(\S\ref{sec:simulator}).
 Admission requires $b_{s,m,k}(t) < B^{\max}_m$ (batch slot not
 full).
 
@@ -156,7 +231,11 @@ at every step. Because the two objectives can be in tension
 overshoots energy budget), we evaluate policies on the
 $(\text{SLO}, E_{\text{tok}})$ plane and seek \textbf{Pareto
 dominance}: $\pi$ dominates $\pi'$ if $\pi$ is no worse on both
-axes and strictly better on at least one.
+axes and strictly better on at least one. These two objectives
+operationalize the latency and cost motivations from
+\S\ref{sec:intro}; privacy, when required, enters as a
+feasibility constraint on the admissible server set rather
+than as an objective.
 
 \subsection{MDP Formulation for RL}
 \label{sec:mdp}
@@ -184,11 +263,12 @@ information under the simulator's dynamics. The MDP is
 \textbf{non-stationary within an episode} (server utilization
 evolves as tasks complete) and \textbf{stationary across
 episodes} (workload distribution is fixed). We solve with PPO
-with action masking, pretraining, and GAE, as detailed in
+with action masking, pretraining, and generalized advantage
+estimation (GAE), as detailed in
 \S\ref{sec:rl}.
 
 \textbf{Why RL.} A natural alternative to RL is solving the
-integer-linear program implied by \S\ref{sec:sched-problem}
+integer-linear program (ILP) implied by \S\ref{sec:sched-problem}
 directly. We rejected this because (i) AIGC physics (P1)(P3)
 introduce \emph{state-dependent} costs (cold-load and batch
 overhead depend on server's running set, which changes within
