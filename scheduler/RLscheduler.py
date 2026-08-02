@@ -222,8 +222,21 @@ class RLScheduler(BaseScheduler):
                  enable_pretrain: bool = True,
                  enable_entropy: bool = True,
                  # ---- F2 patch: 抗"cloud collapse"惩罚 ----
-                 enable_cloud_overuse: bool = True):
+                 enable_cloud_overuse: bool = True,
+                 # ---- R1 修订: 奖励权重敏感性实验 ----
+                 reward_weights: dict | None = None):
         super().__init__(sim_env)
+
+        # 7 项奖励权重（默认 = 论文 canonical 配置，和为 1.0）
+        self.reward_weights = {"time": 0.25, "balance": 0.10,
+                               "match": 0.10, "warm": 0.15,
+                               "batch": 0.20, "affinity": 0.10,
+                               "cloud": 0.10}
+        if reward_weights:
+            unknown = set(reward_weights) - set(self.reward_weights)
+            if unknown:
+                raise ValueError(f"未知奖励权重键: {unknown}")
+            self.reward_weights.update(reward_weights)
 
         # 保存消融开关
         self.enable_warm_reward = enable_warm_reward
@@ -473,14 +486,16 @@ class RLScheduler(BaseScheduler):
                 cloud_util = server.used_compute / max(server.total_compute, 1e-6)
                 cloud_overuse = -cloud_util   # [-1, 0]
 
-        # F2 重新分配权重：base 0.45 + AIGC 0.45 + cloud_overuse 0.10 = 1.0
-        return (0.25 * time_reward       # 0.30 → 0.25
-                + 0.10 * balance_reward  # 0.15 → 0.10
-                + 0.10 * match_reward
-                + 0.15 * warm_bonus
-                + 0.20 * batch_bonus
-                + 0.10 * affinity_bonus
-                + 0.10 * cloud_overuse)  # NEW
+        # 权重可经构造参数 reward_weights 覆盖（R1 修订：敏感性实验）；
+        # 默认 = F2 配置：base 0.45 + AIGC 0.45 + cloud_overuse 0.10 = 1.0
+        w = self.reward_weights
+        return (w["time"] * time_reward
+                + w["balance"] * balance_reward
+                + w["match"] * match_reward
+                + w["warm"] * warm_bonus
+                + w["batch"] * batch_bonus
+                + w["affinity"] * affinity_bonus
+                + w["cloud"] * cloud_overuse)
 
     # =============================================================
     #  经验存储与 PPO 更新

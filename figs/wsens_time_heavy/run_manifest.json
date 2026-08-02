@@ -1,0 +1,59 @@
+{
+  "timestamp": "2026-08-02T23:02:52",
+  "git_commit": "81132466a5dcf9a44441286d283849b12206adf8",
+  "num_runs": 30,
+  "edge_counts": [
+    5
+  ],
+  "workload": "inference",
+  "total_tasks": 100,
+  "interval": 20,
+  "aigc": false,
+  "aigc_alpha": null,
+  "ablation": "none",
+  "reward_weights_preset": "time_heavy",
+  "reward_weights": {
+    "time": 0.55,
+    "balance": 0.05,
+    "match": 0.05,
+    "warm": 0.1,
+    "batch": 0.1,
+    "affinity": 0.05,
+    "cloud": 0.1
+  },
+  "ttft_slo": 2.0,
+  "tpot_slo": 0.1,
+  "trace_preset": "lognormal",
+  "arrival_rate": 2.0,
+  "quick": false,
+  "schedulers": [
+    "RoundRobin",
+    "LeastLoaded",
+    "ShortestQueue",
+    "HEFT",
+    "GA",
+    "PSO",
+    "A3C_R2N2",
+    "RL"
+  ],
+  "cli_argv": [
+    "brenchmark.py",
+    "--workload",
+    "inference",
+    "--trace-preset",
+    "lognormal",
+    "--arrival-rate",
+    "2.0",
+    "--runs",
+    "30",
+    "--tasks",
+    "100",
+    "--edge",
+    "5",
+    "--reward-weights",
+    "time_heavy",
+    "--rl-only",
+    "--out",
+    "figs/wsens_time_heavy"
+  ]
+}

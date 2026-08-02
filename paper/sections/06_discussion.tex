@@ -37,7 +37,13 @@ We hypothesize prior works claiming gains from specific reward
 components have overlooked this \textbf{substitutability}
 within a sufficiently expressive PPO backbone: a positive
 single-reward result is \emph{suspicious} without the kind of
-joint ablation in Table~\ref{tab:ablation}.
+joint ablation in Table~\ref{tab:ablation}. The
+weight-sensitivity study (\S\ref{sec:weight-sens}) sharpens
+this further: not only can individual components be removed
+without effect, the \emph{relative weighting} of all seven
+terms can be shifted from latency-first to AIGC-first without
+measurable change on either objective---so gains should not be
+attributed to weight tuning either.
 
 Collectively, these implications suggest the AIGC scheduling
 agenda should reorient from ``engineering better rewards'' to

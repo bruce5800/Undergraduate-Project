@@ -169,6 +169,15 @@ Prefill ($+1$) and penalizes non-trivial KV migration
 when an edge alternative exists) discourages an
 ``always-cloud'' attractor we observed in early experiments
 (see \S\ref{sec:implications}).
+The canonical weights allocate 0.45 to the load-balancing
+group, 0.45 to the AIGC group, and 0.10 to the anti-collapse
+penalty; within each group, weights are set roughly
+proportional to how informative each signal proved during our
+diagnostic experiments. We stress that this choice is
+\emph{not} finely tuned: retraining under four alternative
+weight vectors---from latency-first to AIGC-first---leaves
+both objectives statistically unchanged
+(\S\ref{sec:weight-sens}).
 
 \textbf{Architecture and training.} A 3-layer
 multi-layer-perceptron (MLP) encoder

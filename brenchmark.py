@@ -89,9 +89,12 @@ class BenchmarkTester:
                  tpot_slo: float = 0.1,
                  trace_preset: str = "uniform",
                  arrival_rate: float = None,
-                 llm_mix: str = "uniform"):
+                 llm_mix: str = "uniform",
+                 reward_weights_preset: str = "canonical"):
         self.num_runs = num_runs
         self.base_seed = base_seed
+        # R1 修订: 奖励权重预设（只影响 RLScheduler）
+        self.reward_weights_preset = reward_weights_preset
         # M1: AIGC 模式 —— 给任务按 Zipf 分配模型 ID，触发冷加载与权重驻留物理
         self.aigc_mode = aigc_mode
         self.aigc_zipf_alpha = aigc_zipf_alpha
@@ -152,11 +155,42 @@ class BenchmarkTester:
         }},
     }
 
+    # ----------------------------------------------------------------
+    #  R1 修订: 奖励权重敏感性预设（7 项权重，均归一化到 1.0）
+    #  canonical = 论文主配置；其余 4 组覆盖"调权重会不会改变结论"
+    # ----------------------------------------------------------------
+    REWARD_WEIGHT_PRESETS = {
+        # 论文 canonical（= RLScheduler 默认值）
+        "canonical":  None,
+        # 无先验参考点：7 项等权
+        "uniform":    {k: 1.0 / 7.0 for k in
+                       ("time", "balance", "match", "warm", "batch",
+                        "affinity", "cloud")},
+        # 延迟优先：时间项拿走一半权重
+        "time_heavy": {"time": 0.55, "balance": 0.05, "match": 0.05,
+                       "warm": 0.10, "batch": 0.10, "affinity": 0.05,
+                       "cloud": 0.10},
+        # AIGC 优先：warm/batch/affinity 合计 0.70
+        "aigc_heavy": {"time": 0.10, "balance": 0.05, "match": 0.05,
+                       "warm": 0.25, "batch": 0.30, "affinity": 0.15,
+                       "cloud": 0.10},
+        # 通用负载均衡优先：AIGC 项合计仅 0.15
+        "base_heavy": {"time": 0.40, "balance": 0.20, "match": 0.20,
+                       "warm": 0.05, "batch": 0.05, "affinity": 0.05,
+                       "cloud": 0.05},
+    }
+
     def _sim_kwargs(self) -> dict:
         return self.ABLATION_KWARGS.get(self.ablation, {}).get("sim", {})
 
     def _rl_kwargs(self) -> dict:
         return self.ABLATION_KWARGS.get(self.ablation, {}).get("rl", {})
+
+    def _reward_weights(self) -> dict | None:
+        """当前预设的权重 dict；canonical 返回 None（用 RLScheduler 默认值）。
+        只注入 RLScheduler——GNN/A3C 的奖励函数独立，不受此参数影响。"""
+        return self.REWARD_WEIGHT_PRESETS.get(
+            getattr(self, "reward_weights_preset", "canonical"))
 
     def _metrics_list(self) -> list:
         """该 workload 下需要汇总/做显著性检验的指标列。"""
@@ -232,8 +266,11 @@ class BenchmarkTester:
 
         # F1 patch: pretrain 5→20，给 PPO 足够样本去探索 cloud 之外的策略
         if scheduler_class is RLScheduler:
+            rl_kwargs = dict(self._rl_kwargs())
+            if self._reward_weights() is not None:
+                rl_kwargs["reward_weights"] = self._reward_weights()
             scheduler = RLScheduler(sim, pretrain_episodes=20,
-                                     **self._rl_kwargs())
+                                     **rl_kwargs)
         elif scheduler_class is A3CR2NScheduler:
             # A3C 同步加到 20，保持 train budget 对等以确保公平对比
             scheduler = A3CR2NScheduler(sim, pretrain_episodes=20)
@@ -668,6 +705,12 @@ if __name__ == "__main__":
              "no_affinity_reward / no_aigc_state / no_action_mask / "
              "no_gae / no_pretrain / no_entropy). 'none' = full model.")
     parser.add_argument(
+        "--reward-weights", type=str, default="canonical",
+        choices=list(BenchmarkTester.REWARD_WEIGHT_PRESETS.keys()),
+        help="R1 revision: reward-weight preset for the RL scheduler "
+             "(canonical / uniform / time_heavy / aigc_heavy / "
+             "base_heavy). Only affects RLScheduler.")
+    parser.add_argument(
         "--rl-only", action="store_true",
         help="Run only the RL scheduler (skip other 7 baselines). "
              "Useful for fast ablation studies focused on RL component analysis.")
@@ -787,6 +830,9 @@ if __name__ == "__main__":
         "aigc_alpha":  (args.aigc_alpha
                         if args.aigc and args.workload == "dag" else None),
         "ablation":    args.ablation,
+        "reward_weights_preset": args.reward_weights,
+        "reward_weights": BenchmarkTester.REWARD_WEIGHT_PRESETS.get(
+            args.reward_weights),
         "ttft_slo":    args.ttft_slo if args.workload == "inference" else None,
         "tpot_slo":    args.tpot_slo if args.workload == "inference" else None,
         "trace_preset": args.trace_preset if args.workload == "inference" else None,
@@ -809,7 +855,8 @@ if __name__ == "__main__":
                               tpot_slo=args.tpot_slo,
                               trace_preset=args.trace_preset,
                               arrival_rate=args.arrival_rate,
-                              llm_mix=args.llm_mix)
+                              llm_mix=args.llm_mix,
+                              reward_weights_preset=args.reward_weights)
 
     if args.rl_only:
         tester.schedulers = {"RL": tester.schedulers["RL"]}

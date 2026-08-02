@@ -32,7 +32,11 @@ clever reward trick}: only continuous batching simulation
 ($-83\%$ \slo{} ablated) and adequate pretraining ($-38\%$
 \slo{} ablated) emerge as significant components. All
 individual AIGC reward and state components are statistically
-indistinguishable from the Full RL baseline in isolation.
+indistinguishable from the Full RL baseline in isolation, and
+retraining under four alternative reward-weight vectors---from
+latency-first to AIGC-first---leaves both objectives
+statistically unchanged while preserving Pareto dominance over
+the strongest baseline.
 This finding cautions the community against claiming gains
 from specific AIGC reward terms without joint ablation.
 

@@ -632,3 +632,68 @@ features---PPO compensates by extracting equivalent signal
 from remaining features. This tells us \textbf{AIGC-aware
 scheduling is a holistic system contribution, not a clever
 reward or state component}.
+
+\subsection{Reward-Weight Sensitivity}
+\label{sec:weight-sens}
+
+The reward of Eq.~\ref{eq:reward} collapses a multi-objective
+problem into a scalar weighted sum, raising the question of
+whether our conclusions are an artifact of one particular
+weight vector. We therefore retrain the scheduler from scratch
+under four alternative weight configurations spanning the
+design space---\emph{uniform} (no prior: all seven weights
+$1/7$), \emph{time-heavy} (the time term receives over half
+the total mass), \emph{AIGC-heavy}
+(warm{+}batch{+}affinity raised to 0.70 total), and
+\emph{base-heavy} (AIGC terms nearly removed, 0.15
+total)---each with $N{=}30$ runs at the canonical operating
+point. Table~\ref{tab:weight-sens} reports the results.
+
+\begin{table}[t]
+  \centering
+  \caption{Reward-weight sensitivity (edge${=}5$,
+    $\lambda{=}2$~req/s, $N{=}30$ per configuration). Weights
+    listed in the order
+    time/balance/match/warm/batch/affinity/cloud of
+    Eq.~\ref{eq:reward}. $p$: two-sided Mann-Whitney U vs.\
+    canonical, \slo{} / \etok. Every configuration
+    Pareto-dominates the strongest baseline (PSO:
+    \slo{}~0.235, \etok{}~2.81).}
+  \label{tab:weight-sens}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{@{}llccc@{}}
+    \toprule
+    Config & Weights & \slo{} & \etok{} & $p$ \\
+    \midrule
+    canonical & .25/.10/.10/.15/.20/.10/.10
+      & $0.302 {\pm} 0.13$ & $2.61 {\pm} 0.67$ & --- \\
+    uniform & $1/7$ each
+      & $0.287 {\pm} 0.13$ & $2.61 {\pm} 0.68$ & .72 / .98 \\
+    time-heavy & .55/.05/.05/.10/.10/.05/.10
+      & $0.304 {\pm} 0.14$ & $2.60 {\pm} 0.67$ & .97 / .98 \\
+    AIGC-heavy & .10/.05/.05/.25/.30/.15/.10
+      & $0.300 {\pm} 0.12$ & $2.63 {\pm} 0.67$ & .86 / .96 \\
+    base-heavy & .40/.20/.20/.05/.05/.05/.05
+      & $0.305 {\pm} 0.14$ & $2.56 {\pm} 0.68$ & .89 / .74 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Two observations. First, \textbf{the headline conclusion is
+robust to the weight choice}: every configuration, including
+the extreme ones, Pareto-dominates the strongest baseline
+(\slo{} 0.287--0.305 vs.\ PSO's 0.235; \etok{} 2.56--2.63
+vs.\ 2.81). Second, \textbf{no configuration differs
+significantly from the canonical weights} (all $p \ge 0.72$):
+even shifting the AIGC group's mass from 0.15 (base-heavy) to
+0.70 (AIGC-heavy) leaves both objectives statistically
+unchanged. This extends the ablation's null result from
+\emph{removing} components to \emph{re-weighting} them, and
+reinforces the interpretation that the gain arises from the
+training procedure and simulator physics rather than from a
+finely tuned reward vector. Conversely, it also means our
+scalarization is benign: within a wide region of weight
+space, the learned policy lands on the same Pareto point, so
+the conclusions drawn from the canonical configuration
+generalize across reasonable weight choices.
