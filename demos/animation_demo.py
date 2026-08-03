@@ -1,9 +1,15 @@
+"""animation_demo.py — 通用 DAG 调度过程的 matplotlib 动画演示（原根目录 main.py）"""
+
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import logging
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from environment.simulation import Simulation
 from environment.task import Task, TaskStatus
-from visualizer import TaskVisualizer
+from demos.visualizer import TaskVisualizer
 from scheduler.RLscheduler import RLScheduler
 from scheduler.GAscheduler import GAScheduler
 from scheduler.PSOscheduler import PSOScheduler
