@@ -3,7 +3,7 @@
 % =============================================================
 
 \begin{abstract}
-\textbf{中文摘要。}大语言模型（LLM）推理负载的快速增长，给数据中心带来巨大的服务成本与能耗压力，仅以吞吐量为单一优化目标的传统调度器已难以胜任。本文研究\textbf{云--边协同的 LLM 推理调度问题}，并显式建模五项 AIGC 特有的物理约束：模型权重驻留、KV 缓存随 token 增长的显存占用、连续批处理（continuous batching）、解码阶段的显存带宽下限，以及预填充--解码（prefill/decode）两阶段请求生命周期。我们设计了一个面向 AIGC 物理的 PPO 调度器，将上述物理量通过状态特征与奖励整形显式暴露给策略网络，并在涵盖启发式、负载均衡与学习式方法的 8 个强基线上做对比。在覆盖拓扑、负载与工作负载组合的 30 种配置（每种 $N=30$ 次独立运行）下，本文调度器于典型工况取得严格的 Pareto 占优：相对最强基线，\slo{} 达成率提升 28\%（统计显著，$p<0.05$），同时每 token 能耗降低 7\%。然而 12 组件消融分析揭示出一个反直觉发现：联合改进是\textbf{系统级整体贡献}而非某项奖励技巧——仅"连续批处理仿真"与"充足预训练"个体显著，所有单项 AIGC 状态或奖励组件在单独消融时与完整模型在统计上不可区分。我们开源仿真器及 30+ 套基准 manifest，以支持后续 AIGC 调度研究。
+\textbf{中文摘要。}大语言模型（LLM）推理负载的快速增长带来了服务成本与能耗压力，单轴吞吐量导向的调度器已无法应对。本文研究 AI 生成内容（AIGC）服务特有的五项物理约束下的\emph{云--边 LLM 推理调度}：模型权重驻留、键值（KV）缓存本地性、连续批处理、解码阶段的显存带宽下限，以及两阶段请求生命周期。我们设计了一个 AIGC 感知的近端策略优化（PPO）调度器，通过状态特征与奖励整形将上述物理量显式暴露给策略网络，并与涵盖启发式、负载均衡、bandit、多目标搜索与学习式方法的 10 个基线对比。在覆盖拓扑、负载与工作负载组合的 30 种配置（每种 $N{=}30$ 次运行）下，本文调度器于典型工况在均值性能上取得严格 Pareto 占优：相对最强单目标基线，服务等级目标（\slo{}）达成率提升 28\%（统计显著，$p<0.05$），同时每 token 能耗降低 7\%。即便面对总体最强基线---膝点 NSGA-II 搜索---本文调度器在两项均值指标上仍更优，且在中等负载下差异显著（$p<0.01$），在每一种配置下每 token 能耗都更低，而调度时计算开销少 $5\times$。然而，12 组件消融揭示联合增益是一项系统级整体贡献：仅连续批处理仿真与充足预训练个体显著；所有 AIGC 奖励与状态组件在单独消融时均与完整模型在统计上不可区分。我们开源仿真器及 30+ 套基准 manifest，以支持后续 AIGC 调度研究。
 
 \textbf{关键词：}LLM 推理；AIGC；云边协同；强化学习；调度；能效；Pareto 优化。
 
@@ -14,29 +14,39 @@
 
 % --- English Abstract（中文期刊要求双语并存） -----------------
 \noindent\textbf{Abstract.} The rapid growth of large language
-model (LLM) inference workloads imposes serving-cost and energy
-pressures that single-axis throughput-oriented schedulers cannot
-address. We study \emph{cloud--edge collaborative LLM inference
-scheduling} under five AIGC-specific physical constraints:
-model-weight residency, KV-cache memory growth, continuous
-batching, the memory-bandwidth floor of decode, and the
-two-phase prefill/decode request lifecycle. We design an
-AIGC-aware proximal policy optimization (PPO) scheduler that
-exposes these physics to the policy through state features and
-reward shaping, and compare against eight strong baselines
-spanning heuristic, load-balancing, and learned approaches.
+model (LLM) inference workloads
+imposes serving-cost and energy pressures that single-axis
+throughput-oriented schedulers cannot address. We study
+\emph{cloud-edge LLM inference scheduling} under five
+physical constraints specific to AI-generated-content (AIGC)
+serving: model-weight residency,
+key-value (KV) cache locality, continuous batching, the
+memory-bandwidth floor of decode, and the two-phase
+request lifecycle. We design an AIGC-aware
+proximal policy optimization (PPO) scheduler that exposes these
+physics to the policy through state features and reward
+shaping, and compare it against ten baselines spanning
+heuristic, load-balancing, bandit, multi-objective search,
+and learned approaches.
 Across 30 configurations sweeping topology, load, and workload
-composition ($N{=}30$ runs each), our scheduler achieves strict
-Pareto dominance in the canonical operating regime: a 28\% gain
-in \slo{} attainment (statistically significant, $p<0.05$)
-together with 7\% lower energy per token relative to the
-strongest baseline. A 12-component ablation reveals that the
-gain is a holistic system contribution: only continuous-batching
-simulation and adequate pretraining are individually
-significant; every AIGC reward and state component is
-statistically indistinguishable from the full model when ablated
-alone. We release the simulator and the 30+ benchmark manifests
-to support future AIGC scheduling research.
+composition ($N{=}30$ runs each), our scheduler achieves
+strict Pareto dominance on mean performance in the canonical
+operating regime: a
+28\% gain in service-level-objective (\slo) attainment
+(statistically significant,
+$p<0.05$) together with 7\% lower energy per token relative to
+the strongest single-objective baseline. Even against a
+knee-point NSGA-II search---the strongest baseline
+overall---our scheduler is better on both means,
+significantly so at moderate load ($p<0.01$), with lower
+energy per token in every configuration at $5\times$ less
+scheduling-time compute. A 12-component ablation,
+however, reveals that the joint gain is a holistic system
+contribution: only continuous-batching simulation and adequate
+pretraining are individually significant; every AIGC reward and
+state component is statistically indistinguishable from the full
+model when ablated alone. We release the simulator and the 30+
+benchmark manifests to support future AIGC scheduling research.
 
 \noindent\textbf{Key words:} LLM inference; AIGC; cloud-edge
 computing; reinforcement learning; scheduling; energy
