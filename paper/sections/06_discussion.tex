@@ -11,39 +11,34 @@ Our experiments support three implications that extend beyond
 the specific schedulers compared in \S\ref{sec:eval}.
 
 \textbf{Simulator physics dominate algorithmic sophistication.}
-The largest scheduler-level effect in our study---the
+The largest effect in our study---the
 $-83\%$ \slo{} collapse from disabling continuous batching
 (Table~\ref{tab:ablation})---is an order of magnitude larger
 than any reward-design or state-engineering choice we
-measured. AIGC scheduling researchers should therefore invest
-the bulk of their effort in faithful physical simulation
-(continuous batching, KV locality, memory-bandwidth floors)
-rather than in network architectures or reward formulations.
+measured. Research effort is better invested in faithful
+physical simulation than in network architectures or reward
+formulations.
 
 \textbf{Pretraining is the cheapest essential investment.}
 Disabling pretrain cost $38\%$ \slo{} ($p<0.001$), yet only
 $20$ episodes ($\sim$10--15~s wall-clock) suffice. Pretraining
-matters not for sample efficiency in the conventional sense
-but for \textbf{escaping locally optimal regions}---in our
-diagnostic process, earlier configurations collapsed into an
-``always-cloud'' attractor until we paired extended pretrain
-with the cloud-overuse penalty.
+matters not for sample efficiency but for \textbf{escaping
+locally optimal regions}: earlier configurations collapsed
+into an ``always-cloud'' attractor until extended pretrain was
+paired with the cloud-overuse penalty.
 
 \textbf{Don't over-attribute gains to reward shaping.} No
-individual AIGC reward component (warm, batch, affinity,
-cloud-overuse, or even all jointly) significantly improves
-\slo{} once continuous batching and pretraining are in place.
-We hypothesize prior works claiming gains from specific reward
-components have overlooked this \textbf{substitutability}
-within a sufficiently expressive PPO backbone: a positive
-single-reward result is \emph{suspicious} without the kind of
-joint ablation in Table~\ref{tab:ablation}. The
-weight-sensitivity study (\S\ref{sec:weight-sens}) sharpens
-this further: not only can individual components be removed
-without effect, the \emph{relative weighting} of all seven
-terms can be shifted from latency-first to AIGC-first without
-measurable change on either objective---so gains should not be
-attributed to weight tuning either.
+individual AIGC reward component (or even all jointly)
+significantly improves
+\slo{} once continuous batching and pretraining are in place,
+and the weight-sensitivity study (\S\ref{sec:weight-sens})
+shows the \emph{relative weighting} of all seven terms can
+shift from latency-first to AIGC-first without measurable
+effect. Prior works claiming gains from specific reward
+components may have overlooked this
+\textbf{substitutability} within an expressive PPO backbone:
+a positive single-reward result is \emph{suspicious} without
+the kind of joint ablation in Table~\ref{tab:ablation}.
 
 Collectively, these implications suggest the AIGC scheduling
 agenda should reorient from ``engineering better rewards'' to
@@ -57,13 +52,12 @@ procedures.''}
 simulation deliberately. Our central claims are
 \emph{comparative and statistical}---a Pareto-dominance
 relation that must hold across 30 configurations and
-$N{=}30$ seeds each (900 runs). Reproducing this sweep on real
-cloud--edge hardware would require simultaneous access to
-A100-, T4-, and Jetson-class nodes under controlled,
-repeatable arrival processes, which is precisely the setting a
-simulator isolates: identical workloads and seeds across all
-eleven schedulers, with no confound from co-tenancy, thermal
-throttling, or driver-version drift. We calibrate the
+$N{=}30$ seeds each (900 runs). Reproducing this sweep on
+real hardware would require simultaneous access to A100-,
+T4-, and Jetson-class nodes under controlled, repeatable
+arrivals---precisely what a simulator isolates: identical
+workloads and seeds across all eleven schedulers, no confound
+from co-tenancy, thermal throttling, or driver drift. We calibrate the
 simulator's constants (cold-load times, batching overheads,
 the memory-bandwidth floor) to published vLLM and
 TensorRT-LLM measurements so that absolute magnitudes are
@@ -87,49 +81,43 @@ direct: its \texttt{scheduler.schedule()} interface is the
 same one a real dispatcher would implement.
 
 \textbf{Workload and hardware coverage.} Our workload uses
-synthetic log-normal lengths calibrated to Azure 2023; we have
-not replayed proprietary production traces nor bursty arrival
-patterns, and we cover A100/T4/Jetson tiers but not H100,
-MI300X, or custom accelerators. The qualitative AIGC physics
-we model are architecture-agnostic and should generalize, but
-re-calibration of constants is needed for new hardware.
+synthetic log-normal lengths calibrated to Azure 2023---not
+replayed production traces or bursty arrivals---and covers
+A100/T4/Jetson tiers but not H100 or custom accelerators. The
+qualitative physics are architecture-agnostic; constants need
+re-calibration for new hardware.
 
 \textbf{Statistical power and algorithm scope.} Our $N=30$
-runs detect medium-to-large effects (Cohen's $d \ge 0.5$) but
-cannot resolve small ones; the ablation nulls mean
+runs detect medium-to-large effects (Cohen's $d \ge 0.5$);
+the ablation nulls mean
 ``no detectable difference $>5\%$ in \slo,'' not ``no
-difference.'' We tested PPO, A3C-R2N2, and a GNN variant and
-all three exhibited similar AIGC substitutability, but
+difference.'' PPO, A3C-R2N2, and the GNN variant all
+exhibited similar AIGC substitutability, but
 offline/model-based RL or imitation learning might respond
 differently.
 
 \subsection{Practical Deployment Guidance}
 \label{sec:guidance}
 
-For practitioners, our results offer four concrete pieces of
+Our results offer four pieces of practical
 guidance. First, \textbf{capacity planning matters more than
-scheduler choice}: \S\ref{sec:workload}'s large-heavy
-experiment shows that 70B requests overflowing the single
-cloud server pin all schedulers to ${\approx}10\%$ \slo, a
-gap dwarfed by adding a second cloud GPU---\emph{provision
+scheduler choice}: 70B requests overflowing the single
+cloud server (\S\ref{sec:workload}) pin all schedulers to
+${\approx}10\%$ \slo---\emph{provision
 compute first; optimize scheduling second}. Second,
 \textbf{simple load balancers suffice in the moderate-load
-regime} ($\lambda \le 2$ with diverse model mix): LeastLoaded
+regime}: LeastLoaded
 and ShortestQueue achieve $78\%$ of RL's \slo{}
-(Fig.~\ref{fig:pareto}) with zero training cost, attractive
-for small-scale deployments. Third, \textbf{reach for RL when
+with zero training cost. Third, \textbf{reach for RL when
 energy efficiency, tail latency, or dispatch-time budget
 matter}: RL attains the lowest
 \etok{} in all 30 configurations (margins up to 9\% under
-load), which translates into millions
-of USD annually at hyperscaler volumes; its tail TTFT
-(P95 25.2~s vs.\ 28--41~s for baselines) matters for
-interactive applications; and its sub-millisecond policy
+load), its tail TTFT
+(P95 25.2~s vs.\ 28--41~s) suits
+interactive serving, and its sub-millisecond policy
 inference avoids the $\approx$70~ms-per-dispatch search cost
-that makes NSGA-II-style multi-objective schedulers---strong
-on \slo{} under saturation---expensive to run in the request
+of NSGA-II-style schedulers in the request
 path. Fourth, \textbf{be skeptical of
-reward-engineering claims}: ask whether new AIGC reward
-components were ablated jointly against a pretrained baseline;
-without those controls, gains may reflect general RL backbone
+reward-engineering claims}: without joint ablation against a
+pretrained baseline, gains may reflect general RL backbone
 improvements rather than the claimed mechanism.

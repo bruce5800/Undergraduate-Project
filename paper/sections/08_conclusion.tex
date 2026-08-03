@@ -38,19 +38,16 @@ isolates the AIGC contribution from general RL machinery.
 A 12-component ablation, however, reveals that \textbf{AIGC-aware
 scheduling is a holistic system contribution rather than a
 clever reward trick}: only continuous batching simulation
-($-83\%$ \slo{} ablated) and adequate pretraining ($-38\%$
-\slo{} ablated) emerge as significant components. All
+($-83\%$ \slo{} ablated) and adequate pretraining ($-38\%$)
+emerge as significant components; all
 individual AIGC reward and state components are statistically
-indistinguishable from the Full RL baseline in isolation, and
-retraining under four alternative reward-weight vectors---from
-latency-first to AIGC-first---leaves both objectives
-statistically unchanged while preserving Pareto dominance over
-the strongest baseline.
-This finding cautions the community against claiming gains
+indistinguishable from the full model, and
+retraining under four alternative reward-weight vectors
+leaves both objectives unchanged.
+This cautions the community against claiming gains
 from specific AIGC reward terms without joint ablation.
 
-We hope this work supports two longer-term directions: more
+We hope this work supports two longer-term directions:
 \textbf{realistic AIGC scheduling benchmarks} built on the
-open platform we release, and a \textbf{research culture of
-aggressive joint ablation} for AIGC scheduling claims. The
-fast-moving LLM-systems landscape will reward both.
+open platform we release, and a \textbf{culture of
+aggressive joint ablation} for AIGC scheduling claims.

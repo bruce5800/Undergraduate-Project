@@ -9,7 +9,7 @@
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.92\textwidth]{llm_inference_lifecycle.pdf}
+  \includegraphics[width=0.70\textwidth]{llm_inference_lifecycle.pdf}
   \caption{An LLM inference request's two-phase lifecycle.
     \emph{Prefill} runs once (compute-bound) over the whole
     prompt, emitting the first token and building the KV cache;
@@ -22,63 +22,47 @@
 \end{figure*}
 
 Modern LLMs are decoder-only
-Transformers~\cite{vaswani2017attention,brown2020gpt3} producing
-one output token at a time. Inference has two phases with
-markedly different hardware characteristics
+Transformers~\cite{vaswani2017attention,brown2020gpt3} whose
+inference has two phases with markedly different hardware
+characteristics
 (Fig.~\ref{fig:lifecycle}). \textbf{Prefill}
 runs once per request: it ingests the prompt of $L_p$ tokens
-in a single forward pass, producing the first output token and
-a \emph{key-value cache} (KV cache) for every Transformer
-layer; compute scales as $O(L_p\cdot d)$ and saturates GPU
-compute for non-trivial prompts. \textbf{Decode} then runs
+in a single compute-saturating forward pass, producing the
+first output token and
+a \emph{key-value cache} (KV cache) for every layer.
+\textbf{Decode} then runs
 iteratively, once per output token ($\sim$10--80~ms each on
-A100), reusing the stored KV cache and extending it by one
-entry per layer; the sequence of $L_o$ steps dominates
+A100), reusing and extending the KV cache; the sequence of
+$L_o$ steps dominates
 end-to-end latency for long generations.
 
-The KV cache is large ($\approx$0.5--2.5~MB per token per
-layer on LLaMA-class models; e.g., $\sim$800~MB for a
-1000-token LLaMA-13B conversation, often larger than
-activation memory) and \textbf{bound to the GPU where Prefill
+The KV cache is large (0.5--2.5~MB per token per layer;
+$\sim$800~MB for a 1000-token LLaMA-13B conversation) and
+\textbf{bound to the GPU where Prefill
 executed}: serving Decode elsewhere requires either copying
 hundreds of MB across the network or re-running Prefill.
 
 Beyond Transformer LLMs, AIGC workloads also include
-text-to-image diffusion models (Stable Diffusion XL) whose
-inference invokes a shared U-Net at every denoising step
-(Fig.~\ref{fig:diffusion})---structurally different but
+text-to-image diffusion models whose
+inference invokes a shared U-Net at every denoising
+step---structurally different but
 sharing the model-residency and batching characteristics that
 motivate our work.
-
-\begin{figure*}[t]
-  \centering
-  \includegraphics[width=0.95\textwidth]{distributed_diffusion.pdf}
-  \caption{Background: diffusion model inference. The forward
-    process gradually adds Gaussian noise to a clean image
-    ($x_0 \to x_T$, parameter-free); the reverse process
-    iteratively denoises ($x_T \to x_0$), invoking a shared
-    U-Net at every step. Each inference request therefore
-    triggers $T$ U-Net forward passes, making model-residency
-    and batching considerations as important as for LLM decode.}
-  \label{fig:diffusion}
-\end{figure*}
 
 \subsection{Continuous Batching and Modern Serving Systems}
 \label{sec:bg-batching}
 
-Throughput-oriented serving exploits \textbf{batching same-model
-requests into a shared forward pass}: $B$ requests take
-$T_{\text{solo}}(1+(B-1)\alpha)$ rather than $B\,T_{\text{solo}}$,
-yielding $5$--$8\times$ throughput. Decode-phase overhead is
-$<5\%$ per request (memory-bandwidth-bound); prefill-phase
-overhead is $\sim$30\% (compute-bound).
-\textbf{Continuous (iteration-level) batching}, introduced by
-Orca~\cite{yu2022orca} and refined by
-vLLM~\cite{kwon2023vllm} (PagedAttention for non-contiguous KV
-allocation) and Sarathi-Serve~\cite{agrawal2024sarathi}
-(chunked prefill), recomposes the batch every decoder
-iteration---finished requests evicted, queued ones joining
-mid-flight. These engine-level optimizations operate
+\textbf{Continuous (iteration-level) batching}---introduced by
+Orca~\cite{yu2022orca}, refined by
+vLLM~\cite{kwon2023vllm} (PagedAttention) and
+Sarathi-Serve~\cite{agrawal2024sarathi} (chunked
+prefill)---recomposes the batch every decoder iteration:
+finished requests are evicted, queued ones join mid-flight.
+Per-request batching overhead is $<5\%$ in decode
+(memory-bandwidth-bound) but $\sim$30\% in prefill
+(compute-bound)---the phase-dependent factors our simulator
+adopts (\S\ref{sec:simulator}). These engine-level
+optimizations operate
 \textbf{within one server}; the upstream question of
 \emph{which server} should serve each request is the focus of
 this paper.
@@ -101,38 +85,28 @@ edge--edge round-trip latency. The paradigm is driven by
 TTFT),
 \textbf{cost} (edge GPUs are 1--10$\times$ cheaper per FLOP and
 2--10$\times$ lower power), and \textbf{data sovereignty}.
-Splitwise~\cite{patel2024splitwise} and
-DistServe~\cite{zhong2024distserve} advocate disaggregating
-prefill from decode across machines of different
-generations; Llumnix~\cite{sun2024llumnix} migrates requests
-across instances. We share their motivation but address the
-complementary \emph{initial placement} question they leave
-open: given a fixed heterogeneous pool, where should each
-request go?
+Phase-disaggregation and migration systems
+(\S\ref{sec:related}) redesign the deployment itself; we
+address the complementary \emph{initial placement} question
+they leave open: given a fixed heterogeneous pool, where
+should each request go?
 
-\subsection{Scheduling Approaches: A Brief Survey}
+\subsection{Scheduling Approaches}
 \label{sec:bg-sched}
 
-Cloud-edge scheduling has historically used three families
-of algorithms, none of which natively encodes AIGC physics.
-\textbf{Heuristic schedulers}---HEFT~\cite{topcuoglu2002heft}
-(upward-rank priorities + earliest-finish-time minimization),
-Round-Robin/Least-Loaded/Shortest-Queue---treat tasks as
-independent black boxes; they cannot, for example, prefer a
-server with the requested model already loaded.
-\textbf{Metaheuristics} such as
-GA~\cite{holland1975adaptation} and
-PSO~\cite{kennedy1995pso} require manual tuning of a fitness
-function; adding AIGC physics demands hand-engineering of
-extra terms---which is precisely what we automate.
-\textbf{Learning-based schedulers} include
-Decima~\cite{mao2019decima} (GNN+REINFORCE for Spark DAGs),
-RLScheduler~\cite{zhang2020rlscheduler} (HPC batch jobs),
-and most relevantly
-A3C-R2N2~\cite{tuli2022a3cr2n} (asynchronous advantage
-actor-critic with a gated-recurrent-unit (GRU) + residual
-encoder for \emph{generic} edge-cloud tasks,
-predating the LLM era). Our scheduler builds on this lineage
-but introduces AIGC-aware state/reward and contrasts directly
-with an A3C-R2N2 baseline (\S\ref{sec:eval}) to isolate the
-AIGC contribution.
+Cloud-edge scheduling has historically used heuristic
+schedulers (HEFT~\cite{topcuoglu2002heft},
+Round-Robin/Least-Loaded/Shortest-Queue), metaheuristics
+(GA~\cite{holland1975adaptation},
+PSO~\cite{kennedy1995pso}), and learning-based schedulers
+(Decima~\cite{mao2019decima},
+RLScheduler~\cite{zhang2020rlscheduler}, and---closest in
+topology---A3C-R2N2~\cite{tuli2022a3cr2n}, an asynchronous
+advantage actor-critic with a gated-recurrent-unit (GRU) +
+residual encoder for generic edge-cloud tasks). None natively
+encodes AIGC physics: heuristics treat tasks as independent
+black boxes, metaheuristic fitness functions require
+hand-engineered AIGC terms---precisely what we automate---and
+existing learned schedulers predate the LLM era. We survey
+this landscape in depth in \S\ref{sec:related} and benchmark
+all three families in \S\ref{sec:eval}.

@@ -9,12 +9,12 @@ throughput-oriented schedulers cannot address. We study
 \emph{cloud-edge LLM inference scheduling} under five
 physical constraints specific to AI-generated-content (AIGC)
 serving: model-weight residency,
-key-value (KV) cache memory growth, continuous batching, the
+key-value (KV) cache locality, continuous batching, the
 memory-bandwidth floor of decode, and the two-phase
-prefill/decode request lifecycle. We design an AIGC-aware
+request lifecycle. We design an AIGC-aware
 proximal policy optimization (PPO) scheduler that exposes these
-physics to the policy through state features and reward shaping,
-and we compare it against ten strong baselines spanning
+physics to the policy through state features and reward
+shaping, and compare it against ten baselines spanning
 heuristic, load-balancing, bandit, multi-objective search,
 and learned approaches.
 Across 30 configurations sweeping topology, load, and workload

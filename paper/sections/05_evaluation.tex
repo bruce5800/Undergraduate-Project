@@ -7,16 +7,9 @@
 \subsection{Experimental Setup}
 \label{sec:eval-setup}
 
-\textbf{Simulation platform.} All experiments use our AIGC
-inference simulator implementing the five AIGC physics from
-\S\ref{sec:intro}, organized as four engineering milestones
-(M1--M4): (M1) model weight residency with LRU eviction and
-cold-load delay; (M2) prefill--decode two-phase tasks with
-explicit KV-cache memory accounting (jointly addressing the
-two-phase lifecycle and KV-locality physics); (M3)
-admission-time continuous batching with phase-dependent
-overhead; (M4) memory-bandwidth floor calibrated to vLLM
-measurements.
+\textbf{Simulation platform.} All experiments use the
+simulator of \S\ref{sec:simulator}, which implements the five
+AIGC physics as milestones M1--M4.
 
 \textbf{Hardware configuration.} One cloud-class server
 (200~TFLOPS, 128~GB VRAM, A100-80GB-equivalent) plus 1--7
@@ -124,10 +117,8 @@ budget; all implementations ship with our open-source release.
       transitions $\times$ 4 epochs \\
     \addlinespace
     \multicolumn{2}{@{}p{0.97\columnwidth}@{}}{\emph{Training
-      budget (all three learned schedulers):} 20 pretraining
-      episodes on the target configuration
-      ($\approx$10--15~s wall-clock), initialized by 30
-      uniform-random warm-up dispatches; online updates
+      budget (all learned schedulers):} 20 pretraining
+      episodes + 30 random warm-up dispatches; online updates
       continue during evaluation.} \\
     \bottomrule
   \end{tabular}
@@ -135,17 +126,15 @@ budget; all implementations ship with our open-source release.
 
 \textbf{Metrics.} Following standard LLM serving benchmarks:
 \slo{} attainment (fraction meeting TTFT $\le$ 2.0~s and TPOT
-$\le$ 100~ms/token); TTFT and TPOT percentiles (P50/P95/P99);
-goodput (output tokens/s); total energy (J); and energy per
-token (J/tok). Energy uses
-$\text{idle\_W} + (\text{max\_W} - \text{idle\_W}) \cdot
-\text{util}$ with calibrated profiles for A100/T4/Jetson tiers.
+$\le$ 100~ms/token); TTFT and TPOT percentiles;
+goodput; total energy; and energy per
+token (J/tok), using the calibrated power model of
+\S\ref{sec:simulator}.
 
 \textbf{Statistical method.} All experiments use 30
-independent runs with different random seeds. We report
-mean~$\pm$~std and use Mann-Whitney U test (two-sided,
-non-parametric) for significance, since the simulation
-outputs are non-Gaussian. Significance thresholds:
+independent seeds; we report mean~$\pm$~std and test
+significance with two-sided Mann-Whitney U (simulation
+outputs are non-Gaussian). Thresholds:
 $*$ $p<0.05$, $**$ $p<0.01$, $***$ $p<0.001$.
 
 \subsection{Main Results: Pareto Dominance}
@@ -194,13 +183,12 @@ efficiency) plane
   \end{tabular}
 \end{table}
 
-Numbers in bold mark the best column-wise. The proposed RL
+The proposed RL
 scheduler is best on every metric except makespan, where
 A3C-R2N2 completes marginally earlier (120.6~s vs.\ 122.2~s, a
-1.3\% gap). Makespan is not among our optimization objectives
-(\S\ref{sec:sched-problem}), and the gap does not affect the
-Pareto relation on the (\slo, \etok) plane, where our scheduler
-dominates on both axes.
+1.3\% gap); makespan is not among our objectives
+(\S\ref{sec:sched-problem}) and the gap does not affect the
+Pareto relation on the (\slo, \etok) plane.
 
 \begin{figure}[t]
   \centering
@@ -262,23 +250,17 @@ significance, reflecting the expected correlation between
 makespan and energy.
 
 \textbf{Why does AIGC-aware RL achieve lower energy?}
-Counterintuitively, our scheduler---which has access to
-high-power cloud resources---uses \emph{less} total energy than
-baselines that default to edge-only behavior. We attribute
-this to three implicit behaviors learned by the policy:
-(i)~\emph{Shorter makespan amplifies idle savings}---the
-cluster's per-step idle power is $\approx$150~W; faster
-makespan directly reduces idle-time energy waste.
-(ii)~\emph{Cold-load avoidance}---co-locating same-model
-requests reduces cold loads, each of which keeps the GPU
-active without producing tokens.
-(iii)~\emph{Affinity to sibling servers}---decode tasks
-placed on the same server as their prefill avoid KV-cache
-migration, eliminating the active-but-idle interval where
-GPUs wait for transfer. \textbf{Without the energy axis,
-these behaviors are indistinguishable from the implicit
-policy a generic RL converges to}; with energy as a
-co-objective, the AIGC-aware design becomes Pareto-dominant.
+Counterintuitively, our scheduler---with access to high-power
+cloud resources---uses \emph{less} energy than baselines that
+default to edge-heavy behavior. We attribute this to three
+learned behaviors: (i)~\emph{shorter makespan amplifies idle
+savings} (cluster idle power is $\approx$150~W);
+(ii)~\emph{cold-load avoidance}---co-locating same-model
+requests eliminates loads that keep GPUs active without
+producing tokens; (iii)~\emph{sibling affinity}---decode
+placed beside its prefill avoids the active-but-idle
+KV-transfer interval. \textbf{With energy as a co-objective,
+these behaviors make the AIGC-aware design Pareto-dominant.}
 
 \textbf{Comparison to A3C-R2N2 (controlled RL backbone).}
 A3C-R2N2 uses the same actor-critic framework but with (a) a
@@ -308,17 +290,16 @@ requires more samples to specialize than the pretrain budget
 \textbf{Comparison to CS-UCB (PerLLM-style bandit).} CS-UCB
 shares our per-request granularity and energy objective, and
 its constraint-satisfaction mechanism mirrors
-PerLLM~\cite{yang2024perllm}. Yet it lands squarely in the
+PerLLM~\cite{yang2024perllm}. Yet it lands in the
 baseline cluster (\slo{} 0.193, \etok{} 2.84): significantly
-below our scheduler on \slo{} ($p{=}0.002$) and directionally
-worse on energy ($p{=}0.066$). The gap has a structural
-cause: stationary per-arm mean rewards cannot track
-\emph{state-dependent} costs---whether a model is resident or
-a batch has free slots depends on the cluster's evolving
+below our scheduler on \slo{} ($p{=}0.002$), directionally
+worse on energy ($p{=}0.066$). The cause is structural:
+stationary per-arm means cannot track
+\emph{state-dependent} costs---model residency and batch
+slots depend on the cluster's evolving
 state, which a context-free bandit averages away while a deep
-policy conditions on it. Constraint filtering alone,
-therefore, does not substitute for state-conditioned
-learning in this problem.
+policy conditions on it. Constraint filtering does not
+substitute for state-conditioned learning.
 
 \textbf{Comparison to NSGA-II (multi-objective search).}
 NSGA-II is by far the strongest baseline and deserves a candid
@@ -335,18 +316,16 @@ scheduler retains the \textbf{lower energy per token in every
 one of the eight configurations} we ran NSGA-II on, with
 margins growing from parity at $\lambda{=}0.5$ to 7--9\%
 under load. Third, the comparison is asymmetric in
-\textbf{scheduling-time cost}: NSGA-II re-runs a
-population-based search at dispatch time---$5.4\times$ our
-scheduler's total wall-clock per simulation
-($\approx$70~ms of search per dispatched task, measured),
-whereas our policy amortizes learning into a one-off pretrain
-and decides by a sub-millisecond forward pass. In
-latency-sensitive serving, dispatch-time search directly
-inflates the very TTFT the scheduler is trying to protect;
-we therefore read NSGA-II as the strongest \emph{offline}
-competitor, and its strength at saturation
-(\S\ref{sec:load}) sharpens rather than undermines the
-regime characterization (C4).
+\textbf{scheduling-time cost}: NSGA-II re-runs a population
+search at dispatch time ($5.4\times$ our total wall-clock;
+$\approx$70~ms of search per dispatched task, measured),
+whereas our policy decides by a sub-millisecond forward pass
+after a one-off pretrain---in latency-sensitive serving,
+dispatch-time search inflates the very TTFT it is
+protecting. We therefore read NSGA-II as the strongest
+\emph{offline} competitor; its strength at saturation
+(\S\ref{sec:load}) sharpens the regime characterization
+(C4).
 
 \subsection{Topology Sensitivity}
 \label{sec:topology}
@@ -405,18 +384,7 @@ band [7\%, 9\%] across all topology configurations, while the
 \textbf{energy efficiency captures the ``intrinsic'' benefit
 of AIGC-aware scheduling more cleanly than \slo}, since \slo{}
 is sensitive to cluster contention dynamics whereas energy
-directly reflects per-task efficiency
-(Fig.~\ref{fig:topology}).
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\columnwidth]{fig5_topology.pdf}
-  \caption{Topology sensitivity. Left: \slo{} attainment vs.\
-    edge count. Right: energy per token vs.\ edge count.
-    RL leads at every topology point; energy gap stays in a
-    narrow 7--9\% band.}
-  \label{fig:topology}
-\end{figure}
+directly reflects per-task efficiency.
 
 \subsection{Load Sensitivity}
 \label{sec:load}
@@ -425,12 +393,14 @@ We sweep the Poisson arrival rate
 $\lambda \in \{0.5, 1, 2, 4, 8\}$ req/s at fixed edge${=}5$ to
 characterize how scheduler behavior changes from
 under-utilization to over-saturation.
-Tables~\ref{tab:slo-vs-lambda} and~\ref{tab:e-vs-lambda}
-report \slo{} attainment and energy per token, respectively.
+Table~\ref{tab:slo-vs-lambda}
+reports \slo{} attainment and energy per token across the
+sweep.
 
 \begin{table}[t]
   \centering
-  \caption{\slo{} attainment across arrival rates. $\bigstar$
+  \caption{Load sweep: \slo{} attainment (top) and energy per
+    token (J/tok, bottom) across arrival rates. $\bigstar$
     = strict winner; $\dagger$ = tied with PSO.}
   \label{tab:slo-vs-lambda}
   \scriptsize
@@ -440,6 +410,7 @@ report \slo{} attainment and energy per token, respectively.
     $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & NSGA-II
       & \textbf{RL} \\
     \midrule
+    \multicolumn{8}{@{}l}{\emph{\slo{} attainment}} \\
     0.5 & 0.596 & 0.339 & 0.359 & 0.500 & 0.462 & 0.577
         & \textbf{0.596}$^\dagger$ \\
     1.0 & 0.297 & 0.265 & 0.227 & 0.237 & 0.214 & 0.352
@@ -450,21 +421,8 @@ report \slo{} attainment and energy per token, respectively.
         & \textbf{0.267} & 0.214 \\
     8.0 & 0.216 & 0.167 & 0.156 & 0.193 & 0.187
         & \textbf{0.219} & 0.199 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\begin{table}[t]
-  \centering
-  \caption{Energy per token (J/tok) across arrival rates.}
-  \label{tab:e-vs-lambda}
-  \scriptsize
-  \setlength{\tabcolsep}{2.5pt}
-  \begin{tabular}{rrrrrrrr}
-    \toprule
-    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & NSGA-II
-      & \textbf{RL} \\
-    \midrule
+    \addlinespace
+    \multicolumn{8}{@{}l}{\emph{Energy per token (J/tok)}} \\
     0.5 & 3.00 & 3.49 & 3.38 & 3.13 & 3.19 & 2.97
         & \textbf{2.96}$^\bigstar$ \\
     1.0 & 2.77 & 3.00 & 3.07 & 2.95 & 2.93 & 2.84
@@ -500,19 +458,7 @@ CS-UCB reaches
 RL's \slo{} level at $\lambda{=}4$ (0.215 vs.\ 0.214).
 \textbf{However, RL's
 energy advantage persists and peaks} in this regime
-(Fig.~\ref{fig:load}).
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\columnwidth]{fig6_load.pdf}
-  \caption{Load sensitivity. Left: \slo{} attainment vs.\
-    $\lambda$ (log-scale). RL stays in the top region for
-    $\lambda \in [0.5, 2]$, converges with PSO at
-    $\lambda \ge 4$. Right: \etok{} vs.\ $\lambda$. RL
-    maintains visible separation below all other lines across
-    the entire range.}
-  \label{fig:load}
-\end{figure}
+(Table~\ref{tab:slo-vs-lambda}, bottom block).
 
 \textbf{When does AIGC-aware design matter most?} We
 characterize three regimes:
@@ -663,33 +609,27 @@ result.}
 
 \textbf{Finding 1: Continuous batching is the physical foundation}
 ($p<0.001$, $\Delta$\slo${} = -83.2\%$, $\Delta$\etok${} =
-+120.5\%$). Removing the batching simulation makes the scheduler
-effectively useless---\slo{} collapses to 5\% and energy per
-token more than doubles. This validates
-Sarathi-Serve~\cite{agrawal2024sarathi} and
-Orca~\cite{yu2022orca}'s emphasis on iteration-level batching
-as foundational infrastructure rather than a scheduling
-optimization.
++120.5\%$). Removing batching collapses \slo{} to 5\% and
+more than doubles energy per token, validating the emphasis
+of Orca~\cite{yu2022orca} and
+Sarathi-Serve~\cite{agrawal2024sarathi} on iteration-level
+batching as foundational infrastructure.
 
 \textbf{Finding 2: Adequate pretraining is essential}
 ($p<0.001$, $\Delta$\slo${} = -38.4\%$, $\Delta$\etok${} =
-+13.5\%$). Without the 20-episode pretrain, the RL policy
-fails to escape locally optimal regions where placement
-collapses toward the cloud server. This aligns with broader
-observations in DRL scheduling literature
++13.5\%$). Without pretrain, placement collapses toward the
+cloud server---aligning with observations
 (Decima~\cite{mao2019decima},
-RLScheduler~\cite{zhang2020rlscheduler}) that
-warm-start/pretraining is essential for sample efficiency in
-stochastic scheduling environments.
+RLScheduler~\cite{zhang2020rlscheduler}) that warm-starting
+is essential in stochastic scheduling environments.
 
 \textbf{Finding 3: Individual AIGC components show no
 significant effect} ($p > 0.39$ for all). Disabling any single
-AIGC component (warm/batch/affinity/cloud-overuse reward, or
-AIGC state features) results in within-noise changes
-($\pm 5\%$). This is consistent with the hypothesis that PPO
-with adequate base features and pretraining \emph{implicitly
-learns} AIGC-aware behavior, with explicit shaping providing
-redundant rather than essential signal.
+AIGC component yields within-noise changes
+($\pm 5\%$)---consistent with PPO, given adequate base
+features and pretraining, \emph{implicitly learning}
+AIGC-aware behavior, explicit shaping providing redundant
+signal.
 
 \textbf{Finding 4 (most striking): Removing \emph{all} AIGC
 design also has no effect} ($p=0.99$ for \slo,
@@ -707,7 +647,7 @@ choice, rather than in any single reward or state component}
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=\textwidth]{fig7_ablation.pdf}
+  \includegraphics[width=0.88\textwidth]{fig7_ablation.pdf}
   \caption{Component ablation across 12 configurations. Left:
     $\Delta$\slo\% vs.\ Full RL; right: $\Delta$\etok\%.
     Red bars = $p<0.05$; gray bars = within noise; light gray
@@ -721,36 +661,30 @@ choice, rather than in any single reward or state component}
 yet be ablation-insensitive?} The apparent paradox between
 \S\ref{sec:main-results} (RL dominates 10 baselines on means)
 and Table~\ref{tab:ablation} (no single AIGC component is
-significant) resolves as follows. Baselines differ from our
-RL in fundamental ways simultaneously: LB-style baselines have
-no learning; HEFT/GA/PSO optimize a fixed cost function
-without AIGC physics; A3C-R2N2 has the same RL backbone but
-without AIGC reward shaping and with a GRU encoder; GNN has
-the same features but a different encoder and less stable
-training under our budget. When all these elements differ at
-once, baselines fall behind by 7--28\%. When we ablate any
-\emph{single} AIGC component within our scheduler---keeping
-PPO, pretrain, action mask, and the rest of the AIGC
-features---PPO compensates by extracting equivalent signal
-from remaining features. This tells us \textbf{AIGC-aware
-scheduling is a holistic system contribution, not a clever
-reward or state component}.
+significant) resolves as follows. Each baseline differs from
+our scheduler in \emph{several} fundamental ways at once (no
+learning; fixed cost functions without AIGC physics; a
+different encoder or training recipe)---and falls behind by
+7--28\%. When we ablate any \emph{single} AIGC component
+within our scheduler, PPO compensates by extracting
+equivalent signal from the remaining features. This tells us
+\textbf{AIGC-aware scheduling is a holistic system
+contribution, not a clever reward or state component}.
 
 \subsection{Reward-Weight Sensitivity}
 \label{sec:weight-sens}
 
 The reward of Eq.~\ref{eq:reward} collapses a multi-objective
-problem into a scalar weighted sum, raising the question of
-whether our conclusions are an artifact of one particular
-weight vector. We therefore retrain the scheduler from scratch
-under four alternative weight configurations spanning the
-design space---\emph{uniform} (no prior: all seven weights
-$1/7$), \emph{time-heavy} (the time term receives over half
-the total mass), \emph{AIGC-heavy}
-(warm{+}batch{+}affinity raised to 0.70 total), and
-\emph{base-heavy} (AIGC terms nearly removed, 0.15
-total)---each with $N{=}30$ runs at the canonical operating
-point. Table~\ref{tab:weight-sens} reports the results.
+problem into a scalar weighted sum---are our conclusions an
+artifact of one particular weight vector? We retrain from
+scratch under four alternative configurations spanning the
+design space---\emph{uniform} (all weights $1/7$),
+\emph{time-heavy} (time term over half the mass),
+\emph{AIGC-heavy}
+(warm{+}batch{+}affinity raised to 0.70), and
+\emph{base-heavy} (AIGC terms nearly removed)---each with
+$N{=}30$ runs at the canonical point
+(Table~\ref{tab:weight-sens}).
 
 \begin{table}[t]
   \centering
@@ -793,10 +727,7 @@ even shifting the AIGC group's mass from 0.15 (base-heavy) to
 0.70 (AIGC-heavy) leaves both objectives statistically
 unchanged. This extends the ablation's null result from
 \emph{removing} components to \emph{re-weighting} them, and
-reinforces the interpretation that the gain arises from the
-training procedure and simulator physics rather than from a
-finely tuned reward vector. Conversely, it also means our
-scalarization is benign: within a wide region of weight
-space, the learned policy lands on the same Pareto point, so
-the conclusions drawn from the canonical configuration
-generalize across reasonable weight choices.
+means our scalarization is benign: within a wide region of
+weight space the learned policy lands on the same Pareto
+point, so conclusions drawn from the canonical configuration
+generalize.

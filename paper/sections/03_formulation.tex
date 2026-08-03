@@ -41,10 +41,8 @@ summarizes the notation used throughout this section.
       & catalog of LLM variants \\
     $W_m$, $C^{\text{cold}}_m$
       & weight footprint (GB) and cold-load time (s) of $m$ \\
-    $\kappa_m$, $\phi_m$
-      & per-token KV size (MB) and decode floor (s/token) \\
-    $B^{\max}_m$
-      & maximum batch size of $m$ \\
+    $\kappa_m$, $\phi_m$, $B^{\max}_m$
+      & per-token KV size, decode floor, max batch of $m$ \\
     $L_s(t)$
       & set of models loaded on $s$ at time $t$ \\
     \addlinespace
@@ -62,9 +60,9 @@ summarizes the notation used throughout this section.
     $\delta^{\text{cold}}$, $\delta^{\text{kv}}$
       & cold-load and KV-migration delay \\
     $b_{s,m,k}(t)$, $\beta_k$
-      & batch occupancy and phase-$k$ batching overhead \\
+      & batch occupancy; phase-$k$ overhead \\
     $T^{\text{solo}}$, $T^{\text{exec}}_{\text{eff}}$
-      & solo and batched effective execution time \\
+      & solo / batched execution time \\
     $e^{\text{pre}}_i$; $s^{\text{dec}}_i$, $e^{\text{dec}}_i$
       & prefill completion; decode start and completion \\
     $\text{TTFT}_i$, $\text{TPOT}_i$
@@ -104,13 +102,10 @@ to a Poisson process at rate $\lambda$. Each request
 $r_i = (m_i, L^p_i, L^o_i, a_i)$ has a target model
 $m_i \in \mathcal{M}$, prompt length $L^p_i$, expected output
 length $L^o_i$, and arrival time $a_i$. The target model is
-\emph{part of the request}, mirroring production serving
-interfaces in which each API call names its model endpoint
-(e.g., a 7B model for autocompletion, a 70B model for complex
-reasoning); model selection is made by the client or an
-upstream router before the request reaches our scheduler.
-The scheduler decides \emph{where} each request runs, never
-\emph{which} model serves it.
+\emph{part of the request}, mirroring production APIs where
+each call names its model endpoint; model selection happens
+upstream---the scheduler decides \emph{where} each request
+runs, never \emph{which} model serves it.
 
 \textbf{Task decomposition.} Each request $r_i$ decomposes into
 two tasks $(t^{\text{pre}}_i, t^{\text{dec}}_i)$ with a strict
@@ -240,29 +235,26 @@ than as an objective.
 \subsection{MDP Formulation for RL}
 \label{sec:mdp}
 
-We treat per-task dispatch as a sequential decision process and
-solve it with reinforcement learning. At each ready task
-arrival, the agent observes a state $\mathbf{s}_t$ summarizing
-the current task's properties and all servers' utilization,
-loaded-model sets, and batch occupancies (detailed encoding in
-\S\ref{sec:rl}). The agent emits an action
-$a_t \in \mathcal{S}$ choosing which server to dispatch to; the
-simulator applies the assignment, advances time until the next
-ready task, and emits a scalar reward $r_t$. We define the
-reward as a weighted sum of seven physical and AIGC-aware terms
-(specified in \S\ref{sec:rl}) designed to provide
-\textbf{dense per-decision} feedback rather than waiting for
-episode-end \slo{}/energy outcomes---an essential design choice
-given the long episode horizons ($\sim$100 task dispatches per
-simulation run).
+We treat per-task dispatch as a sequential decision process.
+At each ready-task arrival, the agent observes a state
+$\mathbf{s}_t$ summarizing
+the task's properties and all servers' utilization,
+loaded-model sets, and batch occupancies (\S\ref{sec:rl}),
+emits an action
+$a_t \in \mathcal{S}$ choosing a server, and receives a scalar
+reward $r_t$: a weighted sum of seven physical and AIGC-aware
+terms (\S\ref{sec:rl}) providing
+\textbf{dense per-decision} feedback rather than
+episode-end \slo{}/energy outcomes---essential
+given the long episode horizons ($\sim$100 dispatches per
+run).
 
-The MDP is \textbf{partially observable} in principle (the
-simulator's internal state is richer than $\mathbf{s}_t$), but
+The MDP is \textbf{partially observable} in principle, but
 the observable features capture all decision-relevant
-information under the simulator's dynamics. The MDP is
-\textbf{non-stationary within an episode} (server utilization
-evolves as tasks complete) and \textbf{stationary across
-episodes} (workload distribution is fixed). We solve with PPO
+information under the simulator's dynamics; it is
+non-stationary within an episode (utilization
+evolves) and stationary across
+episodes (fixed workload distribution). We solve it with PPO
 with action masking, pretraining, and generalized advantage
 estimation (GAE), as detailed in
 \S\ref{sec:rl}.
@@ -275,7 +267,4 @@ overhead depend on server's running set, which changes within
 an episode), breaking the static-cost ILP assumption; and
 (ii) the combinatorial action space at each step
 ($|\mathcal{S}|^{|\mathcal{R}|}$) is too large for
-branch-and-bound at realistic workload sizes. Heuristic and
-metaheuristic schedulers (HEFT, GA, PSO) compose a more
-comparable design space and serve as our primary baselines in
-\S\ref{sec:eval}.
+branch-and-bound at realistic workload sizes.

@@ -1,5 +1,7 @@
 *.pdf
 .DS_Store
+.vscode/
+.claude/
 __pycache__/
 submission/node_modules/
 submission/package-lock.json

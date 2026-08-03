@@ -31,16 +31,13 @@ sequential read).
 
 \textbf{M2: Prefill--Decode two-phase tasks with KV cache.}
 Each request decomposes into (Prefill, Decode) sharing
-\texttt{req\_id}; per-phase workload is
-\texttt{tokens$\cdot$prefill\_tflops}/$k$ and the analogous
-decode form. We encode KV size into
+\texttt{req\_id}. KV size is encoded into
 \texttt{prefill.output\_size}
-($\text{prompt\_tokens}\cdot\kappa_m/1024$~GB), so the existing
+($\text{prompt\_tokens}\cdot\kappa_m/1024$~GB), so the
 transfer-time formula automatically charges
-\textbf{KV-migration cost} whenever Decode lands on a server
-other than where Prefill ran---no extra code paths. Each task
-also carries \texttt{kv\_cache\_GB} occupying VRAM during
-execution.
+\textbf{KV-migration cost} whenever Decode lands away from its
+Prefill; each task also carries \texttt{kv\_cache\_GB}
+occupying VRAM during execution.
 
 \textbf{M3: Continuous batching.} An admitted task counts the
 running same-model same-kind tasks
@@ -70,16 +67,15 @@ Jetson AGX Orin: 10--30~W). System energy per token is the
 integrated power divided by completed output tokens.
 
 The simulator exposes a one-call
-\texttt{scheduler.schedule()} interface (read-only access to
-tasks/servers/network; dispatch via
-\texttt{server.add\_task}), so any scheduler---from
-50-line RoundRobin to our PPO agent---can be swapped in
-without environment changes. Fig.~\ref{fig:simulator-arch}
+\texttt{scheduler.schedule()} interface, so any
+scheduler---from 50-line RoundRobin to our PPO agent---can be
+swapped in without environment changes.
+Fig.~\ref{fig:simulator-arch}
 shows the end-to-end data flow.
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.92\textwidth]{trace_integration.pdf}
+  \includegraphics[width=0.70\textwidth]{trace_integration.pdf}
   \caption{End-to-end architecture of our AIGC inference simulator.
     Color bands denote (purple) trace sources, (blue) workload
     generator, (red) simulation environment with M1--M4 physics
@@ -102,7 +98,7 @@ the seven-term reward and the PPO update that closes the loop.
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.86\textwidth]{rl_scheduler_arch.pdf}
+  \includegraphics[width=0.66\textwidth]{rl_scheduler_arch.pdf}
   \caption{AIGC-aware PPO scheduler as an MDP decision loop. For
     each \texttt{READY} task, the state encoder (\textcircled{1})
     builds a 96-dim vector whose per-server block carries five
@@ -119,21 +115,20 @@ the seven-term reward and the PPO update that closes the loop.
 \end{figure*}
 
 \textbf{State.} For each \texttt{READY} task the encoder emits
-a flat vector of dimension $(10+|\mathcal{M}|)+2+10N$ holding
-three blocks: a \emph{task block} (compute demand, workload,
-input/output size, dependency/successor counts, task-kind
-one-hot, normalized KV-cache size, and a model-ID one-hot),
-a 2-dim \emph{global block} (\texttt{READY} queue size,
+a flat vector of dimension $(10+|\mathcal{M}|)+2+10N$: a
+\emph{task block} (compute demand, workload, input/output
+size, dependency counts, task-kind and model-ID one-hots,
+normalized KV size), a 2-dim \emph{global block} (queue size,
 completed ratio), and a $10$-dim per-server block of five
 general features (compute/memory utilization, bandwidth,
-queue length, transfer-time estimate) followed by five
+queue length, transfer-time estimate) plus five
 \textbf{AIGC-specific features}: (i)~loaded-model
 indicator, (ii)~normalized batch occupancy, (iii)~free VRAM
 fraction, (iv)~normalized cold-load cost, and
 (v)~\emph{sibling-server indicator}---for Decode, whether
-the candidate server is where Prefill ran. The sibling
-indicator is novel: it gives the policy direct read-access
-to KV-cache locality without reasoning about request IDs.
+the candidate server is where Prefill ran, giving the policy
+direct read-access to KV-cache locality without reasoning
+about request IDs.
 For edge${=}5$, $|\mathcal{M}|{=}4$, the state dimension is
 96.
 

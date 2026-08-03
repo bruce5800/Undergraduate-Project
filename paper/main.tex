@@ -5,7 +5,8 @@
 % Build: make           (uses pdflatex + bibtex + pdflatex x 2)
 % =============================================================
 
-\documentclass[conference]{IEEEtran}
+% TCC submission: IEEE Transactions (journal) mode
+\documentclass[journal]{IEEEtran}
 
 % --- Packages --------------------------------------------------
 \usepackage[utf8]{inputenc}
@@ -44,12 +45,15 @@
 \title{Pareto-Dominant Reinforcement Learning for\\
 Cloud-Edge LLM Inference Scheduling}
 
-\author{
-  \IEEEauthorblockN{Zhuolun Li}
-  \IEEEauthorblockA{Faculty of Science and Engineering,
-                    University of Bristol, Bristol, United Kingdom\\
-                    Email: nu25406@bristol.ac.uk}
+\author{Zhuolun~Li
+  \thanks{Z.~Li is with the Faculty of Science and Engineering,
+    University of Bristol, Bristol, United Kingdom
+    (e-mail: nu25406@bristol.ac.uk).}
 }
+
+\markboth{IEEE Transactions on Cloud Computing}%
+{Li: Pareto-Dominant Reinforcement Learning for Cloud-Edge LLM
+Inference Scheduling}
 
 \begin{document}
 
@@ -62,6 +66,8 @@ Cloud-Edge LLM Inference Scheduling}
 LLM inference, AIGC, cloud-edge computing, reinforcement learning,
 scheduling, energy efficiency, Pareto optimization.
 \end{IEEEkeywords}
+
+\IEEEpeerreviewmaketitle
 
 % =============================================================
 \input{sections/01_intro}
