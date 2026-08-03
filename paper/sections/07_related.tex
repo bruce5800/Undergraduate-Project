@@ -4,87 +4,135 @@
 \section{Related Work}
 \label{sec:related}
 
-\textbf{LLM serving systems.}
+\textbf{LLM serving systems (single server or cluster).}
 Orca~\cite{yu2022orca} introduced iteration-level continuous
 batching, vLLM~\cite{kwon2023vllm} added PagedAttention
 for non-contiguous KV allocation
 (2--4$\times$ throughput), and
 Sarathi-Serve~\cite{agrawal2024sarathi} introduced chunked
-prefill to mitigate generation stalls in mixed batches. These
-optimize \emph{within} a single server's GPU and are
+prefill to mitigate generation stalls in mixed batches.
+VoltanaLLM~\cite{yu2025voltana} co-optimizes energy and \slo{}
+inside a prefill/decode-disaggregated cluster via frequency
+control and state-space routing. These systems optimize
+\emph{within} one serving engine or cluster and are
 \textbf{orthogonal} to our cross-server scheduling: our
 admission-time batching is a tractable abstraction of their
-iteration-level batching, and our RL's per-request placement
+iteration-level batching, and our per-request placement
 decisions would propagate into vLLM-style engines unchanged.
 
-\textbf{Cluster scheduling.}
-HEFT~\cite{topcuoglu2002heft} computes upward-rank task
-priorities for static DAG assignment; genetic
-algorithms~\cite{holland1975adaptation} and
-PSO~\cite{kennedy1995pso} apply population-based search to
-scheduling fitness landscapes; industry uses simpler
-load-balancing primitives (Round-Robin, Least-Loaded,
-Shortest-Queue). We compare against all of these in
-\S\ref{sec:eval}; none natively encodes AIGC physics.
+\textbf{Cluster scheduling: from heuristics to learning.}
+Classic schedulers---HEFT~\cite{topcuoglu2002heft} with
+upward-rank priorities, and metaheuristics such as
+GA~\cite{holland1975adaptation} and
+PSO~\cite{kennedy1995pso}---optimize fixed cost models for
+generic DAG workloads; industry favors simpler load-balancing
+primitives. Learned schedulers followed:
+Decima~\cite{mao2019decima} (GNN + REINFORCE for Spark DAGs),
+RLScheduler~\cite{zhang2020rlscheduler} (HPC batch jobs), and
+A3C-R2N2~\cite{tuli2022a3cr2n} (actor-critic for generic
+edge-cloud tasks, predating the LLM era)---the closest
+predecessor in deployment topology, which we benchmark as a
+\textbf{controlled baseline} (\S\ref{sec:main-results}) to
+isolate our AIGC contribution. This line remains active:
+recent work applies GNN-based DRL to energy-aware cloud
+scheduling~\cite{dagtopology2026} and diffusion-aided reward
+shaping to AIGC workload scheduling across data
+centers~\cite{aigcenergy2026}. Two findings from this
+literature prefigure ours: Decima's gains concentrate at high
+cluster load, and \cite{dagtopology2026} observes that each
+learned policy degenerates to a regime-specific
+heuristic---consistent with our regime characterization (C4).
+None of these schedulers encodes LLM-serving physics.
 
-\textbf{RL for scheduling.}
-Decima~\cite{mao2019decima} uses a GNN over Spark DAG
-structure with REINFORCE; RLScheduler~\cite{zhang2020rlscheduler}
-applies RL to HPC batch jobs;
-A3C-R2N2~\cite{tuli2022a3cr2n} uses asynchronous
-actor-critic with a residual recurrent encoder for edge-cloud
-IoT tasks---the closest predecessor in deployment topology
-but predating the AIGC era. We benchmark A3C-R2N2 as a
-\textbf{controlled baseline} (\S\ref{sec:main-results}):
-holding actor-critic constant isolates the AIGC contribution
-of our state and reward design ($+28\%$ \slo, $-7\%$ \etok,
-$p<0.05$). We also implement a Decima-style GNN variant and
-find that, under realistic training budgets, a feedforward
-MLP with explicit AIGC features matches or exceeds the GNN's
-relational reasoning---a departure from Decima's original
-Spark-DAG findings.
+\textbf{LLM request scheduling across servers.} A fast-growing
+line schedules LLM inference \emph{across} instances rather
+than within one engine. Inside a single cluster, Microsoft's
+workload-aware router~\cite{jain2024router} trains a
+heuristic-guided RL policy over prefill/decode and batch-mixing
+effects, and Lodestar~\cite{lim2026lodestar} learns an online
+reward predictor coupling batching with KV-cache reuse---both
+echo our thesis that serving physics should be exposed to a
+learned router, but neither models a cloud-edge hierarchy nor
+energy. FREESH~\cite{he2025freesh} routes and schedules for
+energy and carbon across geo-distributed heterogeneous GPUs
+through classical optimization, and
+MARLIN~\cite{moore2026marlin} applies multi-agent
+game-theoretic RL to multi-objective LLM scheduling within
+cloud datacenters. On the cloud-edge side,
+PerLLM~\cite{yang2024perllm} is the closest prior work: it
+schedules diverse LLM service requests across edge and cloud
+with a constrained combinatorial bandit and reports large
+throughput and energy-cost gains. We differ on three axes:
+\emph{(i)~method}---PerLLM's bandit optimizes a scalarized
+cost under constraints, whereas we learn a deep policy whose
+\textbf{state and reward expose serving physics} (model
+residency, KV-cache locality, batch occupancy);
+\emph{(ii)~objective}---we treat \slo{} and energy per token
+as an explicit Pareto pair rather than folding them into one
+cost; \emph{(iii)~analysis}---our joint ablation and
+weight-sensitivity study (\S\ref{sec:ablation},
+\S\ref{sec:weight-sens}) quantify \emph{where} such gains come
+from, an analysis bandit-style methods do not expose. We
+reimplement a CS-UCB-style scheduler in our simulator as a
+baseline; it clusters with the generic baselines on the
+Pareto plane (\S\ref{sec:main-results}). Other
+cloud-edge efforts differ in decision granularity or method:
+Lyapunov-assisted DRL partitions transformer layers across
+tiers~\cite{younesi2025lyapunov}; active-inference
+offloading~\cite{he2024activeinference} and
+world-model-assisted PPO offloading with on-device
+compression~\cite{zhang2026worldmodel} make device-side
+offload decisions; T2DRL~\cite{xu2025t2drl} co-designs model
+caching and offloading at the mobile edge; QoS-aware routing
+selects among edge-deployed experts~\cite{yang2025qosrouting};
+NSGA-II search routes requests across cloud-edge LLM instances
+without learning~\cite{yu2025llmrouting}; and
+SLICE~\cite{chow2025slice} schedules differentiated \slo{}
+tiers on a single edge device via utility heuristics and
+decode-rate control. To our knowledge, \textbf{no prior work
+combines a deep-RL policy over a heterogeneous cloud-edge
+pool with serving-physics state/reward and joint
+\slo{}+energy Pareto evaluation}---the specific conjunction
+this paper studies and ablates.
 
-\textbf{AIGC-specific scheduling.} Splitwise, DistServe, and
-Llumnix~\cite{patel2024splitwise,zhong2024distserve,sun2024llumnix}
-(\S\ref{sec:bg-cloudedge}) design \emph{deployment topologies}
-(phase splitting, disaggregated pools) and
-\emph{intra-cluster reactive policies} (mid-flight
-migration), treating initial request placement as orthogonal.
-\textbf{Our work attacks the initial placement problem}: the
-two strands compose---Llumnix-style migration could refine
-our placements at runtime; our scheduler could populate
-prefill/decode pools in a Splitwise-style deployment.
-
-The closest contemporary effort is
-SLICE~\cite{chow2025slice}, which schedules LLM inference
-under differentiated \slo{} requirements using a
-utility-maximizing request scheduler and dynamic
-generation-rate control. We differ along three axes.
-\emph{(i)~Topology:} SLICE targets \textbf{edge-only}
-devices (robots, vehicles, IoT), whereas we schedule across a
-\textbf{heterogeneous cloud--edge} pool where the placement
-decision---which tier serves each request---is itself the
-lever. \emph{(ii)~Objective:} SLICE optimizes \slo{}
-attainment as a single axis; we treat \slo{} \emph{and}
-energy per token as a \textbf{multi-objective Pareto}
-problem, and our central finding (energy advantage is more
-configuration-stable than \slo) is only visible on the second
-axis. \emph{(iii)~Method:} SLICE uses a hand-designed utility
-heuristic with rate control; we learn the policy with
-\textbf{AIGC-aware RL} and, through 12-component ablation,
-\emph{quantify} how much of the gain is attributable to
-learning versus simulator physics---a methodological
-contribution orthogonal to the scheduling result itself.
+\textbf{AIGC deployment topologies.}
+Splitwise~\cite{patel2024splitwise} and
+DistServe~\cite{zhong2024distserve} disaggregate prefill from
+decode across machines of different generations;
+Llumnix~\cite{sun2024llumnix} migrates requests across
+instances mid-flight. These works design \emph{deployment
+topologies} and \emph{reactive policies}, treating initial
+request placement as orthogonal---the two strands compose:
+our scheduler could populate prefill/decode pools in a
+Splitwise-style deployment, and Llumnix-style migration could
+refine our placements at runtime.
 
 \textbf{Simulation platforms.}
 CloudSim~\cite{calheiros2011cloudsim},
 iFogSim~\cite{gupta2017ifogsim}, and
 WorkflowSim~\cite{chen2012workflowsim} target general
-cloud-fog or DAG workloads without AIGC physics; recent
-LLM-serving simulators model intra-server batching dynamics
-rather than cross-server scheduling. To our knowledge our
-simulator (\S\ref{sec:simulator}) is the first open-source
-platform combining all five AIGC physics, cross-server
-scheduling focus, and native multi-objective (\slo{}~+~energy)
-evaluation. We release it with reproducibility manifests for
-the 30+ configurations in \S\ref{sec:eval}.
+cloud-fog or DAG workloads without LLM physics. A recent wave
+of LLM-serving simulators models intra-cluster serving with
+high fidelity: Vidur~\cite{agrawal2024vidur} builds
+profiling-plus-ML operator models for cluster-scale what-if
+analysis; SplitwiseSim~\cite{patel2024splitwise} simulates
+phase-split clusters; LLMServingSim~\cite{cho2024llmservingsim}
+co-simulates hardware and software;
+Frontier~\cite{frontier2025sim} models disaggregated serving
+with explicit cross-server KV-transfer events; and Helix's
+simulator covers geo-distributed heterogeneous GPU
+pools~\cite{mei2025helix}. An extension of Vidur couples a GPU
+power model to quantify energy and
+carbon~\cite{wiesner2025vidurvessim}. Each pillar of our
+simulator therefore exists somewhere in isolation---continuous
+batching and the two-phase lifecycle are standard; Frontier
+models cross-server KV movement;
+\cite{wiesner2025vidurvessim} adds energy accounting; and
+weight-residency/cold-load dynamics appear in serverless
+serving systems~\cite{fu2024serverlessllm}. To our knowledge,
+however, ours is the first \emph{open} platform to
+\textbf{combine} all five AIGC physics with a cloud-edge
+cross-server scheduling scope and native multi-objective
+(\slo{}~+~energy) evaluation. We release it with
+reproducibility manifests for the 30+ configurations in
+\S\ref{sec:eval}.

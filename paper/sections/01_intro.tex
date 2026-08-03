@@ -119,13 +119,15 @@ Our empirical journey reveals a more subtle picture
 
 \begin{itemize}
 \item Generic load-balancing baselines (LeastLoaded,
-  ShortestQueue), optimal-DAG heuristics (HEFT, GA, PSO), and
+  ShortestQueue), optimal-DAG heuristics (HEFT, GA, PSO),
+  a PerLLM-style constrained-bandit
+  scheduler~\cite{yang2024perllm}, and
   even modern deep-reinforcement-learning (DRL) baselines
   (A3C-R2N2~\cite{tuli2022a3cr2n} and
   a Decima-inspired graph-neural-network (GNN) variant we
   implemented~\cite{mao2019decima}) all cluster in the same
   Pareto region: \slo{} attainment
-  around 21--24\% and energy
+  around 19--24\% and energy
   efficiency around 2.8--3.0 J/token.
 
 \item Our AIGC-aware proximal-policy-optimization (PPO)
@@ -134,9 +136,10 @@ Our empirical journey reveals a more subtle picture
   with explicit AIGC state features and reward shaping, achieves
   a \textbf{distinctly better Pareto point}: \slo{} 30.2\%
   ($+28\%$ relative) and energy 2.61~J/token ($-7\%$ relative),
-  with $p<0.05$ on \slo{} against all four strongest baselines
-  and on energy per token against three of four (PSO is
-  directionally consistent but $p=0.11$).
+  with $p<0.05$ on \slo{} against all five strongest baselines
+  and on energy per token against three of five (PSO and the
+  CS-UCB bandit are directionally consistent but do not reach
+  significance).
 
 \item However, our 12-component ablation
   (Table~\ref{tab:ablation}, Fig.~\ref{fig:ablation}) reveals a
@@ -179,7 +182,7 @@ exposes AIGC physics to the policy via state features
 (loaded-model indicator, batch occupancy, sibling-server
 affinity, KV-cache size) and reward shaping (warm bonus, batch
 bonus, affinity bonus, cloud-overuse penalty). The scheduler
-achieves \textbf{Pareto dominance} over eight strong baselines
+achieves \textbf{Pareto dominance} over nine strong baselines
 in \slo{} attainment and energy efficiency.
 
 \smallskip

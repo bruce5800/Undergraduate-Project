@@ -42,6 +42,7 @@ from scheduler.LeastLoadedScheduler import LeastLoadedScheduler
 from scheduler.ShortestQueueScheduler import ShortestQueueScheduler
 from scheduler.A3CR2NScheduler import A3CR2NScheduler
 from scheduler.GNNScheduler import GNNScheduler
+from scheduler.PerLLMScheduler import CSUCBScheduler
 from environment.simulation import Simulation
 from environment.task import Task, TaskStatus, TaskKind
 from environment.model_catalog import assign_models_zipf
@@ -121,6 +122,7 @@ class BenchmarkTester:
             "A3C_R2N2":      A3CR2NScheduler,
             "RL":            RLScheduler,
             "GNN":           GNNScheduler,
+            "CS_UCB":        CSUCBScheduler,   # R1 修订: PerLLM 式 bandit
         }
 
     # ----------------------------------------------------------------
@@ -278,6 +280,10 @@ class BenchmarkTester:
             # GNN 也用 20 episodes，复用 ablation kwargs
             scheduler = GNNScheduler(sim, pretrain_episodes=20,
                                       **self._rl_kwargs())
+        elif scheduler_class is CSUCBScheduler:
+            # R1 修订: PerLLM 式 CS-UCB bandit，超参经 CLI 网格调优
+            scheduler = CSUCBScheduler(sim,
+                                       **getattr(self, "csucb_kwargs", {}))
         else:
             scheduler = scheduler_class(sim)
 
@@ -715,6 +721,17 @@ if __name__ == "__main__":
         help="Run only the RL scheduler (skip other 7 baselines). "
              "Useful for fast ablation studies focused on RL component analysis.")
     parser.add_argument(
+        "--schedulers", type=str, default=None,
+        help="Comma-separated scheduler subset to run, e.g. "
+             "--schedulers CS_UCB or --schedulers PSO,RL. "
+             "Default: the standard 8-scheduler set (RL included).")
+    parser.add_argument(
+        "--csucb-delta", type=float, default=1.0,
+        help="CS-UCB exploration coefficient delta (default 1.0)")
+    parser.add_argument(
+        "--csucb-lam", type=float, default=1.0,
+        help="CS-UCB constraint-satisfaction weight lambda (default 1.0)")
+    parser.add_argument(
         "--ttft-slo", type=float, default=2.0,
         help="TTFT SLO threshold in seconds (inference workload only). Default 2.0s.")
     parser.add_argument(
@@ -838,8 +855,12 @@ if __name__ == "__main__":
         "trace_preset": args.trace_preset if args.workload == "inference" else None,
         "arrival_rate": args.arrival_rate if args.workload == "inference" else None,
         "quick":       args.quick,
-        "schedulers":  ["RoundRobin", "LeastLoaded", "ShortestQueue",
-                         "HEFT", "GA", "PSO", "A3C_R2N2", "RL"],
+        "schedulers":  (["RL"] if args.rl_only else
+                        ([s.strip() for s in args.schedulers.split(",")]
+                         if args.schedulers else
+                         ["RoundRobin", "LeastLoaded", "ShortestQueue",
+                          "HEFT", "GA", "PSO", "A3C_R2N2", "RL"])),
+        "csucb_kwargs": {"delta": args.csucb_delta, "lam": args.csucb_lam},
         "cli_argv":    sys.argv,
     }
     with open(os.path.join(output_dir, "run_manifest.json"),
@@ -858,9 +879,21 @@ if __name__ == "__main__":
                               llm_mix=args.llm_mix,
                               reward_weights_preset=args.reward_weights)
 
+    tester.csucb_kwargs = {"delta": args.csucb_delta,
+                           "lam": args.csucb_lam}
+
     if args.rl_only:
         tester.schedulers = {"RL": tester.schedulers["RL"]}
         print(f"  --rl-only: 只跑 RL 调度器（其他 baseline 跳过）")
+    elif args.schedulers:
+        wanted = [s.strip() for s in args.schedulers.split(",") if s.strip()]
+        unknown = [s for s in wanted if s not in tester.schedulers]
+        if unknown:
+            print(f"ERROR: unknown scheduler(s): {unknown}; "
+                  f"valid: {list(tester.schedulers.keys())}")
+            sys.exit(1)
+        tester.schedulers = {k: tester.schedulers[k] for k in wanted}
+        print(f"  --schedulers: {wanted}")
     raw, summary = tester.run_benchmark(
         edge_counts, total_tasks=total_tasks,
         checkpoint_interval=interval,

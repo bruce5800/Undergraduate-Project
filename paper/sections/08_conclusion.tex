@@ -9,19 +9,22 @@ scheduling for cloud-edge LLM inference. We built a
 comprehensive AIGC simulator modeling five physical
 characteristics---model weight residency, KV-cache locality,
 continuous batching, memory-bandwidth floors, and two-phase
-request lifecycle---then evaluated nine schedulers spanning
+request lifecycle---then evaluated ten schedulers spanning
 load-balancing heuristics, classic and metaheuristic DAG
-schedulers, and three RL variants (PPO with MLP,
-A3C-R2N2~\cite{tuli2022a3cr2n} with GRU encoder, and PPO with
-a Decima-inspired~\cite{mao2019decima} GNN encoder).
+schedulers, a PerLLM-style constrained-bandit
+(CS-UCB~\cite{yang2024perllm}), and three RL variants (PPO
+with MLP, A3C-R2N2~\cite{tuli2022a3cr2n} with GRU encoder,
+and PPO with a Decima-inspired~\cite{mao2019decima} GNN
+encoder).
 
 Our AIGC-aware PPO scheduler achieves \textbf{Pareto
-dominance} over eight strong baselines on the (\slo{}
+dominance} over nine strong baselines on the (\slo{}
 attainment, energy per token) plane: $+28\%$ \slo{} and
 $-7\%$ energy at the canonical edge${=}5$, $\lambda{=}2$
 configuration, significant at $p<0.05$ on \slo{} against all
-four strongest comparators and on energy efficiency against
-three of four (PSO $p=0.11$, others $p<0.05$). The Pareto
+five strongest comparators and on energy efficiency against
+three of five (PSO and CS-UCB directionally consistent,
+others $p<0.05$). The Pareto
 dominance extends robustly across edge counts $\{3, 5, 7\}$
 and survives the strict A3C-R2N2 controlled comparison that
 isolates the AIGC contribution from general RL machinery.

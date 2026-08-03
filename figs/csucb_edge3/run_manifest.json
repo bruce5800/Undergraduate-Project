@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-08-03T01:36:40",
+  "git_commit": "ea7bd3c9283051fd3f746c1c2ba608a0b5c13531",
+  "num_runs": 30,
+  "edge_counts": [
+    3
+  ],
+  "workload": "inference",
+  "total_tasks": 100,
+  "interval": 20,
+  "aigc": false,
+  "aigc_alpha": null,
+  "ablation": "none",
+  "reward_weights_preset": "canonical",
+  "reward_weights": null,
+  "ttft_slo": 2.0,
+  "tpot_slo": 0.1,
+  "trace_preset": "lognormal",
+  "arrival_rate": 2.0,
+  "quick": false,
+  "schedulers": [
+    "CS_UCB"
+  ],
+  "csucb_kwargs": {
+    "delta": 0.5,
+    "lam": 1.0
+  },
+  "cli_argv": [
+    "brenchmark.py",
+    "--workload",
+    "inference",
+    "--trace-preset",
+    "lognormal",
+    "--runs",
+    "30",
+    "--tasks",
+    "100",
+    "--schedulers",
+    "CS_UCB",
+    "--csucb-delta",
+    "0.5",
+    "--csucb-lam",
+    "1.0",
+    "--arrival-rate",
+    "2.0",
+    "--edge",
+    "3",
+    "--out",
+    "figs/csucb_edge3"
+  ]
+}

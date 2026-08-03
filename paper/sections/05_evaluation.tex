@@ -35,7 +35,7 @@ Each request is assigned uniformly to one of three models
 (LLaMA-7B, LLaMA-13B, LLaMA-70B-INT8) with parameters
 calibrated to vLLM and TensorRT-LLM benchmark numbers.
 
-\textbf{Baselines (9 schedulers).} We compare against a broad
+\textbf{Baselines (10 schedulers).} We compare against a broad
 set:
 \begin{itemize}
 \item \textbf{RoundRobin (RR)}---load-agnostic baseline.
@@ -53,18 +53,28 @@ set:
   scheduler that encodes AIGC physics as \textbf{edge features}
   in a task--server bipartite graph, similar to
   Decima~\cite{mao2019decima}.
+\item \textbf{CS-UCB}~\cite{yang2024perllm}---a PerLLM-style
+  constraint-satisfaction UCB bandit, the closest prior work
+  (\S\ref{sec:related}): per-request server selection by
+  maximum UCB among feasible arms, with reward
+  $-E_{\text{est}} + \lambda f(y)$ (negative energy estimate
+  plus normalized constraint slack).
 \item \textbf{Ours (RL)}---our AIGC-aware PPO scheduler with
   explicit AIGC state features and reward shaping.
 \end{itemize}
 
-All nine schedulers are implemented natively in Python against
+All ten schedulers are implemented natively in Python against
 the simulator's uniform \texttt{scheduler.schedule()}
 interface; no external scheduler library is reused. HEFT
 follows the original upward-rank
 formulation~\cite{topcuoglu2002heft}; A3C-R2N2 reimplements
 the GRU + residual-skip network of~\cite{tuli2022a3cr2n}; the
 GNN variant follows Decima-style graph
-encoding~\cite{mao2019decima}. Table~\ref{tab:hyperparams}
+encoding~\cite{mao2019decima}; CS-UCB reimplements PerLLM's
+constraint-satisfaction UCB~\cite{yang2024perllm} at our
+per-task granularity, with per-(model, phase, server) arm
+statistics mirroring its per-service personalization.
+Table~\ref{tab:hyperparams}
 lists each scheduler's hyperparameters and search/training
 budget; all implementations ship with our open-source release.
 
@@ -92,6 +102,10 @@ budget; all implementations ship with our open-source release.
     GNN & 1-hop attention message passing on the task--server
       bipartite graph (hidden 64); same PPO recipe and budget
       as ours \\
+    CS-UCB & arms = (model, phase, server); feasibility filter
+      via admission check; exploration $\delta{=}0.5$,
+      constraint weight $\lambda{=}1.0$ (grid-tuned over
+      $\delta \in \{0.1,\dots,2\}$, $\lambda \in \{0.5,1\}$) \\
     RL (ours) & MLP $256{\to}128{\to}64$; PPO clip
       $\epsilon{=}0.2$, GAE $\gamma{=}0.95$,
       $\lambda{=}0.90$; Adam $3{\times}10^{-4}$; entropy
@@ -126,7 +140,7 @@ $*$ $p<0.05$, $**$ $p<0.01$, $***$ $p<0.001$.
 \subsection{Main Results: Pareto Dominance}
 \label{sec:main-results}
 
-We evaluate all nine schedulers on the canonical configuration:
+We evaluate all ten schedulers on the canonical configuration:
 5 servers (1 cloud + 4 heterogeneous edges), Poisson arrival
 $\lambda{=}2$ req/s, 100 task units ($\approx$50 inference
 requests). Results are averaged over 30 runs.
@@ -134,7 +148,7 @@ requests). Results are averaged over 30 runs.
 \textbf{Headline finding.} Our AIGC-aware RL scheduler
 simultaneously achieves the highest \slo{} attainment
 \textbf{and} the lowest energy per token, \textbf{Pareto-dominating
-all eight baselines} in the (\slo, energy efficiency) plane
+all nine baselines} in the (\slo, energy efficiency) plane
 (Table~\ref{tab:main}, Fig.~\ref{fig:pareto}).
 
 \begin{table}[t]
@@ -159,6 +173,7 @@ all eight baselines} in the (\slo, energy efficiency) plane
     PSO           & 129.6 & 0.235 & 25.6 & 2.81 & 41.0 \\
     A3C-R2N2      & \textbf{120.6} & 0.214 & 26.7 & 2.93 & 28.8 \\
     GNN           & 125.5 & 0.210 & 26.7 & 2.93 & 32.2 \\
+    CS-UCB        & 129.9 & 0.193 & 26.0 & 2.84 & 37.3 \\
     \textbf{RL (ours)} & 122.2 & \textbf{0.302}
                        & \textbf{23.7} & \textbf{2.61}
                        & \textbf{25.2} \\
@@ -189,33 +204,38 @@ dominates on both axes.
 
 \textbf{Statistical significance.} Table~\ref{tab:significance}
 reports Mann-Whitney U tests
-comparing our RL scheduler against each of the four strongest
+comparing our RL scheduler against each of the five strongest
 baselines.
 
 \begin{table}[t]
   \centering
-  \caption{$p$-values vs.\ four strongest baselines (two-sided
+  \caption{$p$-values vs.\ five strongest baselines (two-sided
     Mann-Whitney U, $N{=}30$). Bold = $p<0.05$.}
   \label{tab:significance}
   \small
-  \begin{tabular}{lcccc}
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lccccc}
     \toprule
-    Metric & PSO & SQ & A3C-R2N2 & GNN \\
+    Metric & PSO & SQ & A3C-R2N2 & GNN & CS-UCB \\
     \midrule
     \slo{} attain.   & \textbf{0.045}$^*$ & \textbf{0.046}$^*$
-                     & \textbf{0.006}$^{**}$ & \textbf{0.006}$^{**}$ \\
-    Total energy     & 0.36 & 0.07 & 0.09 & 0.10 \\
+                     & \textbf{0.006}$^{**}$ & \textbf{0.006}$^{**}$
+                     & \textbf{0.002}$^{**}$ \\
+    Total energy     & 0.36 & 0.07 & 0.09 & 0.10 & 0.21 \\
     Energy/token     & 0.11 & \textbf{0.010}$^{**}$
-                     & \textbf{0.028}$^*$ & \textbf{0.016}$^*$ \\
+                     & \textbf{0.028}$^*$ & \textbf{0.016}$^*$
+                     & 0.066 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 \slo{} attainment is significantly higher in our scheduler
-against all four baselines ($p<0.05$, with $p<0.01$ for both
-DRL baselines). Energy efficiency is significantly better
-against three of four (PSO is directionally consistent but
-does not reach $p<0.05$). Total energy shows a consistent
+against all five baselines ($p<0.05$, with $p<0.01$ for both
+DRL baselines and the bandit). Energy efficiency is
+significantly better
+against three of five (PSO, $p=0.11$, and CS-UCB, $p=0.066$,
+are directionally consistent but
+do not reach $p<0.05$). Total energy shows a consistent
 $\le 10\%$ advantage but does not reach individual
 significance, reflecting the expected correlation between
 makespan and energy.
@@ -264,6 +284,21 @@ data efficiency}: the GNN's relational reasoning capacity
 requires more samples to specialize than the pretrain budget
 (20 episodes) provides.
 
+\textbf{Comparison to CS-UCB (PerLLM-style bandit).} CS-UCB
+shares our per-request granularity and energy objective, and
+its constraint-satisfaction mechanism mirrors
+PerLLM~\cite{yang2024perllm}. Yet it lands squarely in the
+baseline cluster (\slo{} 0.193, \etok{} 2.84): significantly
+below our scheduler on \slo{} ($p{=}0.002$) and directionally
+worse on energy ($p{=}0.066$). The gap has a structural
+cause: stationary per-arm mean rewards cannot track
+\emph{state-dependent} costs---whether a model is resident or
+a batch has free slots depends on the cluster's evolving
+state, which a context-free bandit averages away while a deep
+policy conditions on it. Constraint filtering alone,
+therefore, does not substitute for state-conditioned
+learning in this problem.
+
 \subsection{Topology Sensitivity}
 \label{sec:topology}
 
@@ -275,32 +310,32 @@ four strongest baselines and our scheduler.
 \begin{table}[t]
   \centering
   \caption{\slo{} and \etok{} (J/tok) vs.\ edge count.
-    $\bigstar$ = column-best across all 9 schedulers.}
+    $\bigstar$ = column-best across all 10 schedulers.}
   \label{tab:topology}
-  \small
-  \setlength{\tabcolsep}{4pt}
-  \begin{tabular}{lrrrrr}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{lrrrrrr}
     \toprule
     Config (1 cloud +)
-      & PSO & SQ & A3C-R2N2 & GNN & \textbf{RL} \\
+      & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & \textbf{RL} \\
     \midrule
     3 edges --- \slo
-      & 0.273 & 0.277 & 0.246 & 0.241
+      & 0.273 & 0.277 & 0.246 & 0.241 & 0.243
       & \textbf{0.314}$^\bigstar$ \\
     3 edges --- \etok
-      & 2.19 & 2.32 & 2.28 & 2.24
+      & 2.19 & 2.32 & 2.28 & 2.24 & 2.24
       & \textbf{1.99}$^\bigstar$ \\
     5 edges --- \slo
-      & 0.235 & 0.234 & 0.214 & 0.210
+      & 0.235 & 0.234 & 0.214 & 0.210 & 0.193
       & \textbf{0.302}$^\bigstar$ \\
     5 edges --- \etok
-      & 2.81 & 2.96 & 2.93 & 2.93
+      & 2.81 & 2.96 & 2.93 & 2.93 & 2.84
       & \textbf{2.61}$^\bigstar$ \\
     7 edges --- \slo
-      & 0.241 & 0.218 & 0.193 & 0.250
+      & 0.241 & 0.218 & 0.193 & 0.250 & 0.152
       & \textbf{0.282}$^\bigstar$ \\
     7 edges --- \etok
-      & 3.25 & 3.34 & 3.35 & 3.35
+      & 3.25 & 3.34 & 3.35 & 3.35 & 3.35
       & \textbf{3.00}$^\bigstar$ \\
     \bottomrule
   \end{tabular}
@@ -353,19 +388,21 @@ report \slo{} attainment and energy per token, respectively.
     = strict winner; $\dagger$ = tied with PSO.}
   \label{tab:slo-vs-lambda}
   \small
-  \setlength{\tabcolsep}{4pt}
-  \begin{tabular}{rrrrrl}
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{rrrrrrl}
     \toprule
-    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & \textbf{RL} \\
+    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & \textbf{RL} \\
     \midrule
-    0.5 & 0.596 & 0.339 & 0.359 & 0.500
+    0.5 & 0.596 & 0.339 & 0.359 & 0.500 & 0.462
         & \textbf{0.596}$^\dagger$ \\
-    1.0 & 0.297 & 0.265 & 0.227 & 0.237
+    1.0 & 0.297 & 0.265 & 0.227 & 0.237 & 0.214
         & \textbf{0.447}$^\bigstar$ \\
-    2.0 & 0.235 & 0.234 & 0.214 & 0.210
+    2.0 & 0.235 & 0.234 & 0.214 & 0.210 & 0.193
         & \textbf{0.302}$^\bigstar$ \\
-    4.0 & \textbf{0.253} & 0.205 & 0.191 & 0.207 & 0.214 \\
-    8.0 & \textbf{0.216} & 0.167 & 0.156 & 0.193 & 0.199 \\
+    4.0 & \textbf{0.253} & 0.205 & 0.191 & 0.207 & 0.215
+        & 0.214 \\
+    8.0 & \textbf{0.216} & 0.167 & 0.156 & 0.193 & 0.187
+        & 0.199 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -375,20 +412,20 @@ report \slo{} attainment and energy per token, respectively.
   \caption{Energy per token (J/tok) across arrival rates.}
   \label{tab:e-vs-lambda}
   \small
-  \setlength{\tabcolsep}{4pt}
-  \begin{tabular}{rrrrrr}
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{rrrrrrr}
     \toprule
-    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & \textbf{RL} \\
+    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & \textbf{RL} \\
     \midrule
-    0.5 & 3.00 & 3.49 & 3.38 & 3.13
+    0.5 & 3.00 & 3.49 & 3.38 & 3.13 & 3.19
         & \textbf{2.96}$^\bigstar$ \\
-    1.0 & 2.77 & 3.00 & 3.07 & 2.95
+    1.0 & 2.77 & 3.00 & 3.07 & 2.95 & 2.93
         & \textbf{2.64}$^\bigstar$ \\
-    2.0 & 2.81 & 2.96 & 2.93 & 2.93
+    2.0 & 2.81 & 2.96 & 2.93 & 2.93 & 2.84
         & \textbf{2.61}$^\bigstar$ \\
-    4.0 & 2.85 & 2.97 & 2.94 & 2.92
+    4.0 & 2.85 & 2.97 & 2.94 & 2.92 & 2.86
         & \textbf{2.58}$^\bigstar$ \\
-    8.0 & 2.94 & 2.89 & 2.98 & 2.91
+    8.0 & 2.94 & 2.89 & 2.98 & 2.91 & 2.99
         & \textbf{2.52}$^\bigstar$ \\
     \bottomrule
   \end{tabular}
@@ -408,7 +445,10 @@ approaches its physical throughput ceiling and \slo{}
 converges across schedulers; PSO marginally outperforms RL on
 \slo{} at $\lambda{=}4$ and $\lambda{=}8$---likely because
 batched offline search exploits the homogenized queue state
-better than RL's incremental policy. \textbf{However, RL's
+better than RL's incremental policy---and even CS-UCB reaches
+RL's \slo{} level at $\lambda{=}4$ (0.215 vs.\ 0.214),
+confirming that saturation erases policy differences on the
+\slo{} axis. \textbf{However, RL's
 energy advantage persists} even in this regime
 (Fig.~\ref{fig:load}).
 
@@ -459,6 +499,7 @@ Table~\ref{tab:workload} reports the results.
     uniform & ShortestQueue  & 0.234 & 2.96 \\
     uniform & A3C-R2N2       & 0.214 & 2.93 \\
     uniform & GNN            & 0.210 & 2.93 \\
+    uniform & CS-UCB         & 0.193 & 2.84 \\
     uniform & \textbf{RL (ours)}
             & \textbf{0.302}$^\bigstar$ & \textbf{2.61}$^\bigstar$ \\
     \midrule
@@ -466,6 +507,7 @@ Table~\ref{tab:workload} reports the results.
     large-heavy & ShortestQueue  & 0.105 & 3.84 \\
     large-heavy & A3C-R2N2       & \textbf{0.107} & 3.79 \\
     large-heavy & GNN            & 0.091 & 3.79 \\
+    large-heavy & CS-UCB         & 0.068 & 3.84 \\
     large-heavy & \textbf{RL (ours)}
                 & 0.098 & \textbf{3.58}$^\bigstar$ \\
     \bottomrule
@@ -594,7 +636,7 @@ $\Delta$\etok${} = -3.3\%$). The combined ablation
 \texttt{no\_aigc\_full} shows essentially identical \slo{}
 performance to Full RL, and \emph{slightly better} energy
 efficiency. Combined with \S\ref{sec:main-results}'s finding
-that our scheduler Pareto-dominates eight baselines---yet its
+that our scheduler Pareto-dominates nine baselines---yet its
 AIGC-specific design components are individually and jointly
 ablatable---this paints a more subtle picture:
 \textbf{the contribution of ``AIGC awareness'' is captured in
@@ -616,7 +658,7 @@ choice, rather than in any single reward or state component}
 
 \textbf{Reconciliation: how can RL Pareto-dominate baselines
 yet be ablation-insensitive?} The apparent paradox between
-\S\ref{sec:main-results} (RL strictly dominates 8 baselines)
+\S\ref{sec:main-results} (RL strictly dominates 9 baselines)
 and Table~\ref{tab:ablation} (no single AIGC component is
 significant) resolves as follows. Baselines differ from our
 RL in fundamental ways simultaneously: LB-style baselines have
