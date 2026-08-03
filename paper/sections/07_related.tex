@@ -57,8 +57,8 @@ energy. FREESH~\cite{he2025freesh} routes and schedules for
 energy and carbon across geo-distributed heterogeneous GPUs
 through classical optimization, and
 MARLIN~\cite{moore2026marlin} applies multi-agent
-game-theoretic RL to multi-objective LLM scheduling within
-cloud datacenters. On the cloud-edge side,
+game-theoretic RL to multi-objective LLM scheduling across
+geo-distributed cloud datacenters (no edge tier). On the cloud-edge side,
 PerLLM~\cite{yang2024perllm} is the closest prior work: it
 schedules diverse LLM service requests across edge and cloud
 with a constrained combinatorial bandit and reports large
@@ -77,7 +77,8 @@ reimplement a CS-UCB-style scheduler in our simulator as a
 baseline; it clusters with the generic baselines on the
 Pareto plane (\S\ref{sec:main-results}). Other
 cloud-edge efforts differ in decision granularity or method:
-Lyapunov-assisted DRL partitions transformer layers across
+Lyapunov-assisted DRL partitions transformer computation at
+sub-layer granularity across
 tiers~\cite{younesi2025lyapunov}; active-inference
 offloading~\cite{he2024activeinference} and
 world-model-assisted PPO offloading with on-device
@@ -86,7 +87,8 @@ offload decisions; T2DRL~\cite{xu2025t2drl} co-designs model
 caching and offloading at the mobile edge; QoS-aware routing
 selects among edge-deployed experts~\cite{yang2025qosrouting};
 NSGA-II search routes requests across cloud-edge LLM instances
-without learning~\cite{yu2025llmrouting}; and
+without learning~\cite{yu2025llmrouting}---we implement it as
+our strongest baseline (\S\ref{sec:eval}); and
 SLICE~\cite{chow2025slice} schedules differentiated \slo{}
 tiers on a single edge device via utility heuristics and
 decode-rate control. To our knowledge, \textbf{no prior work

@@ -136,10 +136,13 @@ Our empirical journey reveals a more subtle picture
   with explicit AIGC state features and reward shaping, achieves
   a \textbf{distinctly better Pareto point}: \slo{} 30.2\%
   ($+28\%$ relative) and energy 2.61~J/token ($-7\%$ relative),
-  with $p<0.05$ on \slo{} against all five strongest baselines
-  and on energy per token against three of five (PSO and the
-  CS-UCB bandit are directionally consistent but do not reach
-  significance).
+  with $p<0.05$ on \slo{} against all five strongest
+  single-objective baselines. The strongest baseline
+  overall---a knee-point NSGA-II search we also
+  implement---approaches our \slo{} at the canonical point
+  but is beaten significantly at moderate load ($p<0.01$),
+  pays more energy in every configuration, and spends
+  $5\times$ more compute at dispatch time.
 
 \item However, our 12-component ablation
   (Table~\ref{tab:ablation}, Fig.~\ref{fig:ablation}) reveals a
@@ -182,7 +185,8 @@ exposes AIGC physics to the policy via state features
 (loaded-model indicator, batch occupancy, sibling-server
 affinity, KV-cache size) and reward shaping (warm bonus, batch
 bonus, affinity bonus, cloud-overuse penalty). The scheduler
-achieves \textbf{Pareto dominance} over nine strong baselines
+achieves \textbf{Pareto dominance on mean performance} over
+ten strong baselines
 in \slo{} attainment and energy efficiency.
 
 \smallskip
@@ -198,8 +202,9 @@ before attributing gains to specific designs.
 showing that AIGC-aware RL achieves strict Pareto dominance only
 in the \textbf{moderate-load operating regime}
 ($\lambda \in [1, 2]$ req/s with uniform model mix), while
-maintaining a robust 5--11\% energy efficiency advantage across
-all 30 tested configurations. This nuanced finding contradicts
+maintaining the lowest energy per token across
+all 30 tested configurations, with margins over the strongest
+baseline growing with load. This nuanced finding contradicts
 simpler ``always wins'' claims common in DRL scheduling
 literature and provides actionable guidance for AIGC scheduling
 deployment.

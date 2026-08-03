@@ -1,0 +1,47 @@
+{
+  "timestamp": "2026-08-03T02:10:23",
+  "git_commit": "3d8c274fec4ede00df862ce6cf36dc04aa844890",
+  "num_runs": 30,
+  "edge_counts": [
+    5
+  ],
+  "workload": "inference",
+  "total_tasks": 100,
+  "interval": 20,
+  "aigc": false,
+  "aigc_alpha": null,
+  "ablation": "none",
+  "reward_weights_preset": "canonical",
+  "reward_weights": null,
+  "ttft_slo": 2.0,
+  "tpot_slo": 0.1,
+  "trace_preset": "lognormal",
+  "arrival_rate": 4.0,
+  "quick": false,
+  "schedulers": [
+    "NSGA_II"
+  ],
+  "csucb_kwargs": {
+    "delta": 1.0,
+    "lam": 1.0
+  },
+  "cli_argv": [
+    "brenchmark.py",
+    "--workload",
+    "inference",
+    "--trace-preset",
+    "lognormal",
+    "--runs",
+    "30",
+    "--tasks",
+    "100",
+    "--schedulers",
+    "NSGA_II",
+    "--arrival-rate",
+    "4.0",
+    "--edge",
+    "5",
+    "--out",
+    "figs/nsga_lambda4.0"
+  ]
+}

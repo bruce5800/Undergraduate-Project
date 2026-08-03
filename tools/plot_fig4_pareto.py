@@ -23,7 +23,8 @@ from matplotlib.patches import Rectangle, FancyArrowPatch, ConnectionPatch
 
 DATA_DIR = "figs/energy_scan2"
 # R1 修订: 新增调度器的数据在独立目录（同一 canonical 配置）
-DATA_DIR_OVERRIDE = {"CS_UCB": "figs/csucb_edge5"}
+DATA_DIR_OVERRIDE = {"CS_UCB": "figs/csucb_edge5",
+                     "NSGA_II": "figs/nsga_edge5"}
 OUTPUT_DIR = "figs/report"
 N_RUNS = 30
 
@@ -38,6 +39,7 @@ SCHEDULER_STYLE = [
     ("A3C_R2N2",     "D",  "#17becf",    9,  "A3C-R2N2"),
     ("GNN",          "P",  "#bcbd22",   10,  "GNN"),
     ("CS_UCB",       "o",  "#ff7f0e",    9,  "CS-UCB"),
+    ("NSGA_II",      "d",  "#7f3fbf",   10,  "NSGA-II"),
     ("RL",           "*",  "#d62728",   22,  "RL (ours)"),
 ]
 
@@ -51,6 +53,7 @@ ZOOM_LABEL_OFFSET = {
     "A3C_R2N2":      (0.005, -0.005),
     "GNN":           (-0.045, -0.012),
     "CS_UCB":        (0.005, -0.012),
+    "NSGA_II":       (-0.075,  0.006),
     "RL":            (-0.090,  0.010),
 }
 
@@ -133,6 +136,7 @@ def main():
         "A3C_R2N2":     (0.10, -0.012),
         "GNN":          (0.10,  0.005),
         "CS_UCB":       (0.10, -0.012),
+        "NSGA_II":      (0.10,  0.005),
         "RL":           (0.15,  0.015),
     }
     draw_points(axA, data, label_offsets=full_offsets, fontsize=9)
@@ -166,7 +170,7 @@ def main():
                    fontsize=11, fontweight="bold")
     axA.set_ylabel("SLO Attainment  ↑  better",
                    fontsize=11, fontweight="bold")
-    axA.set_title("(a) Full view: all 10 schedulers",
+    axA.set_title("(a) Full view: all 11 schedulers",
                   fontsize=11, pad=10)
     axA.set_xlim(1.8, 8.5)
     axA.set_ylim(0.10, 0.40)
@@ -190,7 +194,7 @@ def main():
 
     axB.set_xlabel("Energy per Token (J / tok)  →  worse",
                    fontsize=11, fontweight="bold")
-    axB.set_title("(b) Zoom: 9 strong schedulers (RoundRobin excluded)",
+    axB.set_title("(b) Zoom: 10 strong schedulers (RoundRobin excluded)",
                   fontsize=11, pad=10)
     axB.set_xlim(2.45, 3.10)
     axB.set_ylim(0.18, 0.34)
@@ -199,7 +203,7 @@ def main():
 
     # ============== Super title and save ===============
     fig.suptitle(
-        "Figure 4. Pareto comparison of 10 schedulers"
+        "Figure 4. Pareto comparison of 11 schedulers"
         "  ·  edge=5, λ=2 req/s, N=30 runs, error bars = 95% CI",
         fontsize=12, fontweight="bold", y=1.01,
     )

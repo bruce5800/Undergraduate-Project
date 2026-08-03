@@ -43,6 +43,7 @@ from scheduler.ShortestQueueScheduler import ShortestQueueScheduler
 from scheduler.A3CR2NScheduler import A3CR2NScheduler
 from scheduler.GNNScheduler import GNNScheduler
 from scheduler.PerLLMScheduler import CSUCBScheduler
+from scheduler.NSGAIIScheduler import NSGAIIScheduler
 from environment.simulation import Simulation
 from environment.task import Task, TaskStatus, TaskKind
 from environment.model_catalog import assign_models_zipf
@@ -123,6 +124,7 @@ class BenchmarkTester:
             "RL":            RLScheduler,
             "GNN":           GNNScheduler,
             "CS_UCB":        CSUCBScheduler,   # R1 修订: PerLLM 式 bandit
+            "NSGA_II":       NSGAIIScheduler,  # R1 修订: 多目标元启发式
         }
 
     # ----------------------------------------------------------------

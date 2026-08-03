@@ -14,15 +14,22 @@ memory-bandwidth floor of decode, and the two-phase
 prefill/decode request lifecycle. We design an AIGC-aware
 proximal policy optimization (PPO) scheduler that exposes these
 physics to the policy through state features and reward shaping,
-and we compare it against nine strong baselines spanning
-heuristic, load-balancing, bandit, and learned approaches.
+and we compare it against ten strong baselines spanning
+heuristic, load-balancing, bandit, multi-objective search,
+and learned approaches.
 Across 30 configurations sweeping topology, load, and workload
 composition ($N{=}30$ runs each), our scheduler achieves
-strict Pareto dominance in the canonical operating regime: a
+strict Pareto dominance on mean performance in the canonical
+operating regime: a
 28\% gain in service-level-objective (\slo) attainment
 (statistically significant,
 $p<0.05$) together with 7\% lower energy per token relative to
-the strongest baseline. A 12-component ablation,
+the strongest single-objective baseline. Even against a
+knee-point NSGA-II search---the strongest baseline
+overall---our scheduler is better on both means,
+significantly so at moderate load ($p<0.01$), with lower
+energy per token in every configuration at $5\times$ less
+scheduling-time compute. A 12-component ablation,
 however, reveals that the joint gain is a holistic system
 contribution: only continuous-batching simulation and adequate
 pretraining are individually significant; every AIGC reward and

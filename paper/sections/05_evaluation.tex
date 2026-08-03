@@ -35,7 +35,7 @@ Each request is assigned uniformly to one of three models
 (LLaMA-7B, LLaMA-13B, LLaMA-70B-INT8) with parameters
 calibrated to vLLM and TensorRT-LLM benchmark numbers.
 
-\textbf{Baselines (10 schedulers).} We compare against a broad
+\textbf{Baselines (11 schedulers).} We compare against a broad
 set:
 \begin{itemize}
 \item \textbf{RoundRobin (RR)}---load-agnostic baseline.
@@ -45,6 +45,11 @@ set:
   DAG-scheduling baseline.
 \item \textbf{GA}~\cite{holland1975adaptation},
   \textbf{PSO}~\cite{kennedy1995pso}---metaheuristic search.
+\item \textbf{NSGA-II}~\cite{yu2025llmrouting}---multi-objective
+  genetic search (non-dominated sorting + crowding distance)
+  over per-window assignments, with two objectives matching
+  our axes (completion-time proxy, energy estimate); the
+  knee-point solution of the final Pareto front is executed.
 \item \textbf{A3C-R2N2}~\cite{tuli2022a3cr2n}---RL baseline
   using asynchronous advantage actor-critic with a
   GRU+residual encoder but with \textbf{generic (non-AIGC)
@@ -63,9 +68,12 @@ set:
   explicit AIGC state features and reward shaping.
 \end{itemize}
 
-All ten schedulers are implemented natively in Python against
+All eleven schedulers are implemented natively in Python
+against
 the simulator's uniform \texttt{scheduler.schedule()}
-interface; no external scheduler library is reused. HEFT
+interface; no external scheduler library is reused. The
+NSGA-II baseline mirrors the multi-objective cloud-edge
+routing setting of~\cite{yu2025llmrouting}. HEFT
 follows the original upward-rank
 formulation~\cite{topcuoglu2002heft}; A3C-R2N2 reimplements
 the GRU + residual-skip network of~\cite{tuli2022a3cr2n}; the
@@ -95,6 +103,9 @@ budget; all implementations ship with our open-source release.
       crossover 0.8, mutation 0.1, elitism 0.1 \\
     PSO & 30 particles, 30 iterations per window; inertia
       $w{=}0.7$, $c_1{=}c_2{=}1.5$ \\
+    NSGA-II & population 30, 30 generations per window;
+      crossover 0.8, mutation 0.1; executes the knee point of
+      the final non-dominated front \\
     A3C-R2N2 & GRU cell + residual skip (hidden 128); Adam
       $3{\times}10^{-4}$, $\gamma{=}0.95$, entropy 0.05, value
       coef.\ 0.5; update every 32 transitions (single epoch,
@@ -140,7 +151,7 @@ $*$ $p<0.05$, $**$ $p<0.01$, $***$ $p<0.001$.
 \subsection{Main Results: Pareto Dominance}
 \label{sec:main-results}
 
-We evaluate all ten schedulers on the canonical configuration:
+We evaluate all eleven schedulers on the canonical configuration:
 5 servers (1 cloud + 4 heterogeneous edges), Poisson arrival
 $\lambda{=}2$ req/s, 100 task units ($\approx$50 inference
 requests). Results are averaged over 30 runs.
@@ -148,7 +159,8 @@ requests). Results are averaged over 30 runs.
 \textbf{Headline finding.} Our AIGC-aware RL scheduler
 simultaneously achieves the highest \slo{} attainment
 \textbf{and} the lowest energy per token, \textbf{Pareto-dominating
-all nine baselines} in the (\slo, energy efficiency) plane
+all ten baselines on mean performance} in the (\slo, energy
+efficiency) plane
 (Table~\ref{tab:main}, Fig.~\ref{fig:pareto}).
 
 \begin{table}[t]
@@ -174,6 +186,7 @@ all nine baselines} in the (\slo, energy efficiency) plane
     A3C-R2N2      & \textbf{120.6} & 0.214 & 26.7 & 2.93 & 28.8 \\
     GNN           & 125.5 & 0.210 & 26.7 & 2.93 & 32.2 \\
     CS-UCB        & 129.9 & 0.193 & 26.0 & 2.84 & 37.3 \\
+    NSGA-II       & 126.2 & 0.289 & 25.5 & 2.79 & 32.0 \\
     \textbf{RL (ours)} & 122.2 & \textbf{0.302}
                        & \textbf{23.7} & \textbf{2.61}
                        & \textbf{25.2} \\
@@ -195,47 +208,55 @@ dominates on both axes.
   \caption{Pareto plot of \slo{} attainment vs.\ energy per
     token at the canonical configuration (edge${=}5$,
     $\lambda{=}2$ req/s, $N{=}30$). The ``ideal'' corner is
-    upper-left. Our RL scheduler sits alone in this region;
-    all other baselines cluster in the lower-right region
-    with similar energy efficiency but markedly lower \slo.
+    upper-left. Our RL scheduler sits alone in this region.
+    Single-objective baselines cluster to the lower-right
+    with markedly lower \slo; the closest challenger,
+    NSGA-II, trails on both axes.
     RoundRobin is an extreme outlier off-chart.}
   \label{fig:pareto}
 \end{figure}
 
 \textbf{Statistical significance.} Table~\ref{tab:significance}
 reports Mann-Whitney U tests
-comparing our RL scheduler against each of the five strongest
+comparing our RL scheduler against each of the six strongest
 baselines.
 
 \begin{table}[t]
   \centering
-  \caption{$p$-values vs.\ five strongest baselines (two-sided
+  \caption{$p$-values vs.\ six strongest baselines (two-sided
     Mann-Whitney U, $N{=}30$). Bold = $p<0.05$.}
   \label{tab:significance}
-  \small
-  \setlength{\tabcolsep}{4pt}
-  \begin{tabular}{lccccc}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{lcccccc}
     \toprule
-    Metric & PSO & SQ & A3C-R2N2 & GNN & CS-UCB \\
+    Metric & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & NSGA-II \\
     \midrule
     \slo{} attain.   & \textbf{0.045}$^*$ & \textbf{0.046}$^*$
                      & \textbf{0.006}$^{**}$ & \textbf{0.006}$^{**}$
-                     & \textbf{0.002}$^{**}$ \\
-    Total energy     & 0.36 & 0.07 & 0.09 & 0.10 & 0.21 \\
+                     & \textbf{0.002}$^{**}$ & 0.64 \\
+    Total energy     & 0.36 & 0.07 & 0.09 & 0.10 & 0.21 & 0.27 \\
     Energy/token     & 0.11 & \textbf{0.010}$^{**}$
                      & \textbf{0.028}$^*$ & \textbf{0.016}$^*$
-                     & 0.066 \\
+                     & 0.066 & 0.12 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 \slo{} attainment is significantly higher in our scheduler
-against all five baselines ($p<0.05$, with $p<0.01$ for both
+against all five single-objective baselines ($p<0.05$, with
+$p<0.01$ for both
 DRL baselines and the bandit). Energy efficiency is
 significantly better
-against three of five (PSO, $p=0.11$, and CS-UCB, $p=0.066$,
+against three of six (PSO, $p=0.11$, and CS-UCB, $p=0.066$,
 are directionally consistent but
-do not reach $p<0.05$). Total energy shows a consistent
+do not reach $p<0.05$). The one baseline our scheduler does
+not separate from statistically at this operating point is
+NSGA-II ($p=0.64$ \slo, $p=0.12$ \etok): our scheduler is
+better on both means, but the gaps are within noise at
+$N{=}30$; we return to this comparison---including its
+sweet-spot significance and cost asymmetry---below. Total
+energy shows a consistent
 $\le 10\%$ advantage but does not reach individual
 significance, reflecting the expected correlation between
 makespan and energy.
@@ -299,6 +320,34 @@ policy conditions on it. Constraint filtering alone,
 therefore, does not substitute for state-conditioned
 learning in this problem.
 
+\textbf{Comparison to NSGA-II (multi-objective search).}
+NSGA-II is by far the strongest baseline and deserves a candid
+account. Searching per-window assignments against the same two
+objectives we optimize, it reaches \slo{} 0.289 and \etok{}
+2.79 at the canonical point---our scheduler is better on both
+means (0.302, 2.61) but neither gap is individually
+significant at $N{=}30$ ($p=0.64$, $p=0.12$). Three
+observations complete the picture. First, in the
+\textbf{moderate-load sweet spot} the separation is real: at
+$\lambda{=}1$ our scheduler reaches \slo{} 0.447 vs.\
+NSGA-II's 0.352 ($+27\%$ relative, $p=0.009$). Second, our
+scheduler retains the \textbf{lower energy per token in every
+one of the eight configurations} we ran NSGA-II on, with
+margins growing from parity at $\lambda{=}0.5$ to 7--9\%
+under load. Third, the comparison is asymmetric in
+\textbf{scheduling-time cost}: NSGA-II re-runs a
+population-based search at dispatch time---$5.4\times$ our
+scheduler's total wall-clock per simulation
+($\approx$70~ms of search per dispatched task, measured),
+whereas our policy amortizes learning into a one-off pretrain
+and decides by a sub-millisecond forward pass. In
+latency-sensitive serving, dispatch-time search directly
+inflates the very TTFT the scheduler is trying to protect;
+we therefore read NSGA-II as the strongest \emph{offline}
+competitor, and its strength at saturation
+(\S\ref{sec:load}) sharpens rather than undermines the
+regime characterization (C4).
+
 \subsection{Topology Sensitivity}
 \label{sec:topology}
 
@@ -310,47 +359,44 @@ four strongest baselines and our scheduler.
 \begin{table}[t]
   \centering
   \caption{\slo{} and \etok{} (J/tok) vs.\ edge count.
-    $\bigstar$ = column-best across all 10 schedulers.}
+    $\bigstar$ = column-best across all 11 schedulers.}
   \label{tab:topology}
   \scriptsize
-  \setlength{\tabcolsep}{3pt}
-  \begin{tabular}{lrrrrrr}
+  \setlength{\tabcolsep}{2.5pt}
+  \begin{tabular}{lrrrrrrr}
     \toprule
     Config (1 cloud +)
-      & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & \textbf{RL} \\
+      & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & NSGA-II & \textbf{RL} \\
     \midrule
     3 edges --- \slo
-      & 0.273 & 0.277 & 0.246 & 0.241 & 0.243
+      & 0.273 & 0.277 & 0.246 & 0.241 & 0.243 & 0.296
       & \textbf{0.314}$^\bigstar$ \\
     3 edges --- \etok
-      & 2.19 & 2.32 & 2.28 & 2.24 & 2.24
+      & 2.19 & 2.32 & 2.28 & 2.24 & 2.24 & 2.16
       & \textbf{1.99}$^\bigstar$ \\
     5 edges --- \slo
-      & 0.235 & 0.234 & 0.214 & 0.210 & 0.193
+      & 0.235 & 0.234 & 0.214 & 0.210 & 0.193 & 0.289
       & \textbf{0.302}$^\bigstar$ \\
     5 edges --- \etok
-      & 2.81 & 2.96 & 2.93 & 2.93 & 2.84
+      & 2.81 & 2.96 & 2.93 & 2.93 & 2.84 & 2.79
       & \textbf{2.61}$^\bigstar$ \\
     7 edges --- \slo
-      & 0.241 & 0.218 & 0.193 & 0.250 & 0.152
+      & 0.241 & 0.218 & 0.193 & 0.250 & 0.152 & 0.277
       & \textbf{0.282}$^\bigstar$ \\
     7 edges --- \etok
-      & 3.25 & 3.34 & 3.35 & 3.35 & 3.35
+      & 3.25 & 3.34 & 3.35 & 3.35 & 3.35 & 3.19
       & \textbf{3.00}$^\bigstar$ \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 Across all three topology configurations, our RL scheduler is
-the best on every metric. The Pareto dominance scales:
-\textbf{3 edges (tight cluster)}: RL leads \slo{} by 13\%
-relative and energy efficiency by 9\%---AIGC-aware physics
-matter most when resources are scarce.
-\textbf{5 edges (canonical)}: RL leads \slo{} by 28\% and
-energy by 7\%.
-\textbf{7 edges (loose cluster)}: RL leads \slo{} by 13\% and
-energy by 8\%---AIGC awareness retains advantage even when
-resources are abundant, but the relative \slo{} gap narrows.
+the best on every metric. Against the single-objective
+baselines, RL leads \slo{} by 13--28\% relative and energy by
+7--9\%. The strongest challenger, NSGA-II, narrows the
+\slo{} gap to 2--6\% relative but pays 6--8\% more energy per
+token at every topology---the same asymmetry we observe at
+the canonical point.
 
 \textbf{Energy advantage is more \emph{configuration-stable}
 than \slo.} The relative energy improvement sits in a narrow
@@ -387,22 +433,23 @@ report \slo{} attainment and energy per token, respectively.
   \caption{\slo{} attainment across arrival rates. $\bigstar$
     = strict winner; $\dagger$ = tied with PSO.}
   \label{tab:slo-vs-lambda}
-  \small
-  \setlength{\tabcolsep}{3pt}
-  \begin{tabular}{rrrrrrl}
+  \scriptsize
+  \setlength{\tabcolsep}{2.5pt}
+  \begin{tabular}{rrrrrrrl}
     \toprule
-    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & \textbf{RL} \\
+    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & NSGA-II
+      & \textbf{RL} \\
     \midrule
-    0.5 & 0.596 & 0.339 & 0.359 & 0.500 & 0.462
+    0.5 & 0.596 & 0.339 & 0.359 & 0.500 & 0.462 & 0.577
         & \textbf{0.596}$^\dagger$ \\
-    1.0 & 0.297 & 0.265 & 0.227 & 0.237 & 0.214
+    1.0 & 0.297 & 0.265 & 0.227 & 0.237 & 0.214 & 0.352
         & \textbf{0.447}$^\bigstar$ \\
-    2.0 & 0.235 & 0.234 & 0.214 & 0.210 & 0.193
+    2.0 & 0.235 & 0.234 & 0.214 & 0.210 & 0.193 & 0.289
         & \textbf{0.302}$^\bigstar$ \\
-    4.0 & \textbf{0.253} & 0.205 & 0.191 & 0.207 & 0.215
-        & 0.214 \\
-    8.0 & \textbf{0.216} & 0.167 & 0.156 & 0.193 & 0.187
-        & 0.199 \\
+    4.0 & 0.253 & 0.205 & 0.191 & 0.207 & 0.215
+        & \textbf{0.267} & 0.214 \\
+    8.0 & 0.216 & 0.167 & 0.156 & 0.193 & 0.187
+        & \textbf{0.219} & 0.199 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -411,21 +458,22 @@ report \slo{} attainment and energy per token, respectively.
   \centering
   \caption{Energy per token (J/tok) across arrival rates.}
   \label{tab:e-vs-lambda}
-  \small
-  \setlength{\tabcolsep}{3pt}
-  \begin{tabular}{rrrrrrr}
+  \scriptsize
+  \setlength{\tabcolsep}{2.5pt}
+  \begin{tabular}{rrrrrrrr}
     \toprule
-    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & \textbf{RL} \\
+    $\lambda$ & PSO & SQ & A3C-R2N2 & GNN & CS-UCB & NSGA-II
+      & \textbf{RL} \\
     \midrule
-    0.5 & 3.00 & 3.49 & 3.38 & 3.13 & 3.19
+    0.5 & 3.00 & 3.49 & 3.38 & 3.13 & 3.19 & 2.97
         & \textbf{2.96}$^\bigstar$ \\
-    1.0 & 2.77 & 3.00 & 3.07 & 2.95 & 2.93
+    1.0 & 2.77 & 3.00 & 3.07 & 2.95 & 2.93 & 2.84
         & \textbf{2.64}$^\bigstar$ \\
-    2.0 & 2.81 & 2.96 & 2.93 & 2.93 & 2.84
+    2.0 & 2.81 & 2.96 & 2.93 & 2.93 & 2.84 & 2.79
         & \textbf{2.61}$^\bigstar$ \\
-    4.0 & 2.85 & 2.97 & 2.94 & 2.92 & 2.86
+    4.0 & 2.85 & 2.97 & 2.94 & 2.92 & 2.86 & 2.78
         & \textbf{2.58}$^\bigstar$ \\
-    8.0 & 2.94 & 2.89 & 2.98 & 2.91 & 2.99
+    8.0 & 2.94 & 2.89 & 2.98 & 2.91 & 2.99 & 2.78
         & \textbf{2.52}$^\bigstar$ \\
     \bottomrule
   \end{tabular}
@@ -433,23 +481,25 @@ report \slo{} attainment and energy per token, respectively.
 
 \textbf{Key observations.}
 (1)~\emph{Energy efficiency is RL-dominant across all loads.}
-RL achieves best energy per token at every $\lambda$ (5/5),
-with a 5--11\% advantage over the next-best baseline; the
-advantage \emph{grows} under higher load.
+RL achieves the best energy per token at every $\lambda$
+(5/5), with a margin over the next-best baseline that grows
+monotonically with load---from parity at $\lambda{=}0.5$ to
+$9\%$ at $\lambda{=}8$.
 (2)~\emph{\slo{} dominance is concentrated in the
 moderate-load regime} ($\lambda \in [0.5, 2]$), where RL is
-strict winner or tied at every point; the \slo{} improvement
-reaches 50\% relative at $\lambda{=}1$.
+strict winner or tied at every point; at $\lambda{=}1$ the
+improvement is $27\%$ relative over the strongest baseline
+(NSGA-II, $p=0.009$) and $50\%$ over PSO.
 (3)~\emph{At very high load ($\lambda \ge 4$)}, the cluster
-approaches its physical throughput ceiling and \slo{}
-converges across schedulers; PSO marginally outperforms RL on
-\slo{} at $\lambda{=}4$ and $\lambda{=}8$---likely because
-batched offline search exploits the homogenized queue state
-better than RL's incremental policy---and even CS-UCB reaches
-RL's \slo{} level at $\lambda{=}4$ (0.215 vs.\ 0.214),
-confirming that saturation erases policy differences on the
-\slo{} axis. \textbf{However, RL's
-energy advantage persists} even in this regime
+approaches its physical throughput ceiling and offline
+multi-objective search takes over the \slo{} axis: NSGA-II is
+the strict winner at $\lambda{=}4$ and $\lambda{=}8$, with
+PSO close behind---batched search exploits the homogenized
+queue state better than any incremental policy---and even
+CS-UCB reaches
+RL's \slo{} level at $\lambda{=}4$ (0.215 vs.\ 0.214).
+\textbf{However, RL's
+energy advantage persists and peaks} in this regime
 (Fig.~\ref{fig:load}).
 
 \begin{figure}[t]
@@ -466,15 +516,19 @@ energy advantage persists} even in this regime
 
 \textbf{When does AIGC-aware design matter most?} We
 characterize three regimes:
-\textbf{under-loaded} ($\lambda \le 1$, spare capacity)---energy
-efficiency edge;
+\textbf{under-loaded} ($\lambda \le 1$, spare
+capacity)---best or tied on both axes;
 \textbf{sweet spot} ($1 \le \lambda \le 2$)---strict Pareto
-winner;
-\textbf{saturated} ($\lambda \ge 4$, throughput ceiling)---energy-only
-edge. This nuanced finding is more defensible than a flat ``we
+winner, with the $\lambda{=}1$ \slo{} lead significant even
+against NSGA-II;
+\textbf{saturated} ($\lambda \ge 4$, throughput
+ceiling)---energy-only edge, with the \slo{} axis ceded to
+offline multi-objective search. This nuanced finding is more
+defensible than a flat ``we
 win everywhere'' claim. The cleanest statement is:
-\emph{AIGC-aware RL achieves consistent energy efficiency
-advantage (5--11\%) across all loads and strict \slo{}+energy
+\emph{AIGC-aware RL achieves the lowest energy per token at
+every load---with a margin that grows with load---and strict
+\slo{}+energy
 Pareto dominance in the moderate-load operating regime that
 characterizes most production inference deployments.}
 
@@ -500,14 +554,16 @@ Table~\ref{tab:workload} reports the results.
     uniform & A3C-R2N2       & 0.214 & 2.93 \\
     uniform & GNN            & 0.210 & 2.93 \\
     uniform & CS-UCB         & 0.193 & 2.84 \\
+    uniform & NSGA-II        & 0.289 & 2.79 \\
     uniform & \textbf{RL (ours)}
             & \textbf{0.302}$^\bigstar$ & \textbf{2.61}$^\bigstar$ \\
     \midrule
     large-heavy & PSO            & 0.093 & 3.84 \\
     large-heavy & ShortestQueue  & 0.105 & 3.84 \\
-    large-heavy & A3C-R2N2       & \textbf{0.107} & 3.79 \\
+    large-heavy & A3C-R2N2       & 0.107 & 3.79 \\
     large-heavy & GNN            & 0.091 & 3.79 \\
     large-heavy & CS-UCB         & 0.068 & 3.84 \\
+    large-heavy & NSGA-II        & \textbf{0.122} & 3.68 \\
     large-heavy & \textbf{RL (ours)}
                 & 0.098 & \textbf{3.58}$^\bigstar$ \\
     \bottomrule
@@ -516,12 +572,17 @@ Table~\ref{tab:workload} reports the results.
 
 In the \textbf{uniform mix}, our RL is the strict Pareto winner.
 In the \textbf{large-heavy mix}, the picture shifts: all
-schedulers converge in \slo{} to a narrow band (0.09--0.11)
+schedulers collapse in \slo{} to a low band (0.07--0.12,
+vs.\ 0.19--0.30 under uniform)
 because LLaMA-70B-INT8 (70~GB weights) physically fits
 \emph{only on the cloud server}. The cloud queue saturates
-regardless of scheduler choice. \textbf{Energy efficiency is
-the only remaining differentiable axis}, where RL still leads
-(3.58 vs.\ 3.79~J/tok, 5.5\% improvement). \emph{When the
+regardless of scheduler choice; within the band, NSGA-II's
+offline search attains the best \slo{} (0.122), echoing its
+saturation advantage in \S\ref{sec:load}. \textbf{Energy
+efficiency is
+the only broadly differentiable axis}, where RL still leads
+(3.58 vs.\ NSGA-II's 3.68 and 3.79--3.84 for the rest).
+\emph{When the
 workload exceeds cluster capacity at a specific tier,
 AIGC-aware scheduling degrades to pure energy optimization}
 (discussed in \S\ref{sec:discuss}).
@@ -636,7 +697,7 @@ $\Delta$\etok${} = -3.3\%$). The combined ablation
 \texttt{no\_aigc\_full} shows essentially identical \slo{}
 performance to Full RL, and \emph{slightly better} energy
 efficiency. Combined with \S\ref{sec:main-results}'s finding
-that our scheduler Pareto-dominates nine baselines---yet its
+that our scheduler Pareto-dominates ten baselines---yet its
 AIGC-specific design components are individually and jointly
 ablatable---this paints a more subtle picture:
 \textbf{the contribution of ``AIGC awareness'' is captured in
@@ -658,7 +719,7 @@ choice, rather than in any single reward or state component}
 
 \textbf{Reconciliation: how can RL Pareto-dominate baselines
 yet be ablation-insensitive?} The apparent paradox between
-\S\ref{sec:main-results} (RL strictly dominates 9 baselines)
+\S\ref{sec:main-results} (RL dominates 10 baselines on means)
 and Table~\ref{tab:ablation} (no single AIGC component is
 significant) resolves as follows. Baselines differ from our
 RL in fundamental ways simultaneously: LB-style baselines have

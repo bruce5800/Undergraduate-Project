@@ -9,22 +9,28 @@ scheduling for cloud-edge LLM inference. We built a
 comprehensive AIGC simulator modeling five physical
 characteristics---model weight residency, KV-cache locality,
 continuous batching, memory-bandwidth floors, and two-phase
-request lifecycle---then evaluated ten schedulers spanning
+request lifecycle---then evaluated eleven schedulers spanning
 load-balancing heuristics, classic and metaheuristic DAG
 schedulers, a PerLLM-style constrained-bandit
-(CS-UCB~\cite{yang2024perllm}), and three RL variants (PPO
+(CS-UCB~\cite{yang2024perllm}), a multi-objective NSGA-II
+search~\cite{yu2025llmrouting}, and three RL variants (PPO
 with MLP, A3C-R2N2~\cite{tuli2022a3cr2n} with GRU encoder,
 and PPO with a Decima-inspired~\cite{mao2019decima} GNN
 encoder).
 
 Our AIGC-aware PPO scheduler achieves \textbf{Pareto
-dominance} over nine strong baselines on the (\slo{}
+dominance on mean performance} over ten strong baselines on
+the (\slo{}
 attainment, energy per token) plane: $+28\%$ \slo{} and
 $-7\%$ energy at the canonical edge${=}5$, $\lambda{=}2$
-configuration, significant at $p<0.05$ on \slo{} against all
-five strongest comparators and on energy efficiency against
-three of five (PSO and CS-UCB directionally consistent,
-others $p<0.05$). The Pareto
+configuration relative to the strongest single-objective
+baseline, significant at $p<0.05$ on \slo{} against all
+five single-objective comparators. The strongest baseline, a
+knee-point NSGA-II search, is matched at canonical load,
+beaten significantly in the moderate-load sweet spot
+($p<0.01$), pays more energy per token in every
+configuration, and spends $5.4\times$ more scheduling-time
+compute. The Pareto
 dominance extends robustly across edge counts $\{3, 5, 7\}$
 and survives the strict A3C-R2N2 controlled comparison that
 isolates the AIGC contribution from general RL machinery.
