@@ -1,0 +1,81 @@
+% Cover letter — IEEE TCC submission. Build: pdflatex cover_letter_tcc.tex
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\pagestyle{empty}
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+\today
+
+Editor-in-Chief\\
+IEEE Transactions on Cloud Computing
+
+\textbf{Re: Submission of ``Pareto-Dominant Reinforcement Learning
+for Cloud-Edge LLM Inference Scheduling'' (regular paper)}
+
+Dear Editor-in-Chief,
+
+I am pleased to submit the above manuscript for consideration in
+\emph{IEEE Transactions on Cloud Computing}. The paper addresses
+per-request scheduling of large-language-model (LLM) inference
+across heterogeneous cloud-edge pools---to my knowledge the first
+work to combine a deep-RL policy over such a pool with
+serving-physics-aware state/reward design and joint SLO+energy
+Pareto evaluation. Its contributions are: (i)~an open-source
+simulator modeling five physical characteristics of LLM inference
+(weight residency, KV-cache locality, continuous batching, the
+memory-bandwidth decode floor, and the two-phase request
+lifecycle); (ii)~an AIGC-aware PPO scheduler that Pareto-dominates
+ten baselines---including a PerLLM-style constrained bandit and a
+multi-objective NSGA-II search---on mean SLO attainment and energy
+per token; (iii)~a 12-component ablation whose deliberately
+reported null result shows the gain is a holistic system effect
+rather than any single reward term, corroborated by a reward-weight
+sensitivity study; and (iv)~a load-regime characterization of when
+learned scheduling helps. Cloud-edge resource management and energy
+efficiency are core topics of TCC, and the journal has recently
+published closely related work on RL-based scheduling and LLM
+inference resource management.
+
+\textbf{Prior submission history (disclosure).} An earlier version
+of this manuscript was submitted to \emph{Future Generation
+Computer Systems} (FGCS-D-26-02940) and rejected. I wish to be
+transparent about the circumstances: a LaTeX build failure in the
+publisher's submission system left two of the three reviewers
+without a readable manuscript (one reviewer stated the file was
+unreadable; another's report discussed an entirely different
+paper). The single substantive review was constructive, and this
+submission addresses every one of its points---added notation and
+hyperparameter tables, per-claim citations, terminology
+clarifications, and a reward-weight sensitivity study---while going
+substantially further: two recent learned baselines (CS-UCB
+following PerLLM, and NSGA-II) were implemented and evaluated
+across all configurations, and the related work was rewritten
+around 19 additional 2024--2026 references. I am submitting a
+self-contained LaTeX bundle that compiles cleanly in a fresh
+environment, and I would be grateful if the system-generated PDF
+could be checked before review; I am happy to supply a compiled PDF
+immediately if any build issue arises.
+
+This manuscript is original, is not under consideration elsewhere,
+and has not been published in any form. I have no competing
+interests to declare, and no funding was received for this work.
+The submission follows the double-anonymized option; all
+identifying information is confined to the separate title page and
+this letter. The simulator and reproducibility manifests will be
+released as open source upon acceptance, and an anonymized archive
+can be provided to reviewers on request.
+
+Thank you for considering this submission.
+
+Sincerely,
+
+Zhuolun Li\\
+Faculty of Science and Engineering, University of Bristol\\
+Bristol, United Kingdom\\
+nu25406@bristol.ac.uk \quad ORCID: 0009-0004-1487-3862
+
+\end{document}
